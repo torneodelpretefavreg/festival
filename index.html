@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Festival Fabbrico — Prenotazioni</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#15131E;
+    --surface:#1F1C2B;
+    --surface-2:#282436;
+    --line:#38334C;
+    --text:#EFE9DE;
+    --muted:#9A93AE;
+    --amber:#F2A03D;
+    --amber-soft:rgba(242,160,61,.16);
+    --viola:#9B8CFF;
+    --viola-soft:rgba(155,140,255,.16);
+    --verde:#4FC3A1;
+    --rosso:#E45B6D;
+    --legno:#6B4E36;
+    --r:10px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    font-size:14px;
+    -webkit-text-size-adjust:100%;
+  }
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{cursor:pointer;border:none;background:none}
+  :focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+  .app{max-width:1600px;margin:0 auto;padding:0 16px 80px}
+
+  /* ---------- Testata ---------- */
+  .top{
+    position:sticky;top:0;z-index:40;
+    background:linear-gradient(180deg,var(--ink) 72%,rgba(21,19,30,.86));
+    backdrop-filter:blur(6px);
+    padding:14px 0 10px;
+    border-bottom:1px solid var(--line);
+  }
+  .top-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .brand{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:22px;letter-spacing:-.02em;line-height:1;margin:0}
+  .brand span{color:var(--amber)}
+  .brand small{display:block;font-family:"IBM Plex Mono",monospace;font-weight:500;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-top:5px}
+  .spacer{flex:1}
+
+  .turni{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px;gap:4px}
+  .turno-btn{
+    display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+    padding:7px 14px;border-radius:8px;color:var(--muted);
+    font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:16px;transition:.15s;
+  }
+  .turno-btn em{font-family:"IBM Plex Sans";font-style:normal;font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;opacity:.8}
+  .turno-btn.on{background:var(--amber-soft);color:var(--amber)}
+  .turno-btn.on.t2{background:var(--viola-soft);color:var(--viola)}
+
+  .stats{display:flex;gap:8px;flex-wrap:wrap}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:7px 12px;min-width:82px}
+  .stat b{display:block;font-family:"IBM Plex Mono",monospace;font-size:19px;font-weight:600;line-height:1.1}
+  .stat i{font-style:normal;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .stat.ok b{color:var(--verde)} .stat.warn b{color:var(--amber)} .stat.bad b{color:var(--rosso)}
+
+  .tabs{display:flex;gap:2px;margin-top:12px;overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{padding:8px 14px;border-radius:8px 8px 0 0;color:var(--muted);font-weight:500;white-space:nowrap;border-bottom:2px solid transparent}
+  .tab.on{color:var(--text);border-bottom-color:var(--amber);background:var(--surface)}
+
+  .cloud{display:flex;align-items:center;gap:6px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+  .dot.live{background:var(--verde);box-shadow:0 0 0 3px rgba(79,195,161,.18)}
+  .dot.local{background:var(--amber)}
+
+  /* ---------- Layout ---------- */
+  .split{display:grid;grid-template-columns:340px 1fr;gap:16px;margin-top:16px;align-items:start}
+  @media(max-width:1000px){.split{grid-template-columns:1fr}}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+  .panel h2{font-family:"Bricolage Grotesque",sans-serif;font-size:15px;font-weight:700;margin:0 0 10px;letter-spacing:-.01em}
+  .hint{color:var(--muted);font-size:12px;line-height:1.5}
+
+  /* ---------- Campi ---------- */
+  .field{display:flex;flex-direction:column;gap:4px;margin-bottom:9px}
+  .field label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  input,select,textarea{
+    background:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 10px;width:100%;
+  }
+  input:focus,select:focus,textarea:focus{border-color:var(--amber);outline:none}
+  textarea{resize:vertical;min-height:54px}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1;margin-bottom:0}
+  .btn{background:var(--amber);color:#231703;border-radius:8px;padding:10px 14px;font-weight:600;transition:.15s}
+  .btn:hover{filter:brightness(1.08)}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+  .btn.ghost:hover{border-color:var(--amber);color:var(--amber)}
+  .btn.danger{background:transparent;border:1px solid rgba(228,91,109,.5);color:var(--rosso)}
+  .btn.sm{padding:6px 10px;font-size:12px}
+  .btn.block{width:100%}
+
+  /* ---------- Prenotazioni ---------- */
+  .search{margin-bottom:10px}
+  .filtri{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+  .chip{padding:5px 10px;border-radius:99px;border:1px solid var(--line);font-size:12px;color:var(--muted)}
+  .chip.on{border-color:var(--amber);color:var(--amber);background:var(--amber-soft)}
+
+  .lista{display:flex;flex-direction:column;gap:7px;max-height:calc(100vh - 300px);overflow-y:auto;padding-right:2px}
+  .pren{
+    background:var(--surface-2);border:1px solid var(--line);border-left:3px solid var(--line);
+    border-radius:8px;padding:9px 10px;transition:.15s;
+  }
+  .pren:hover{border-color:var(--muted)}
+  .pren.sel{border-color:var(--amber);border-left-color:var(--amber);background:var(--amber-soft)}
+  .pren.done{border-left-color:var(--verde)}
+  .pren.annullata{opacity:.45;text-decoration:line-through}
+  .pren-top{display:flex;align-items:baseline;gap:8px}
+  .pren-nome{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pax{font-family:"IBM Plex Mono",monospace;font-weight:600;color:var(--amber)}
+  .pren-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:5px;font-size:11px;color:var(--muted);align-items:center}
+  .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .tag.seat{border-color:rgba(242,160,61,.45);color:var(--amber)}
+  .pren-actions{display:flex;gap:5px;margin-top:8px}
+
+  /* ---------- Piantina ---------- */
+  .plan-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .plan-wrap{
+    position:relative;overflow:auto;border:1px solid var(--line);border-radius:var(--r);
+    background:var(--ink);background-image:radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px);
+    background-size:24px 24px;height:calc(100vh - 260px);min-height:420px;
+  }
+  .plan{position:relative;transform-origin:0 0;width:1500px;height:1000px}
+  .plan-bg{position:absolute;inset:0;background-size:contain;background-repeat:no-repeat;opacity:.35;pointer-events:none}
+
+  .tavolo{position:absolute;display:flex;flex-direction:column;user-select:none;touch-action:none}
+  .tavolo.v{flex-direction:row}
+  .seats{display:flex;justify-content:center;gap:6px;height:13px;align-items:center}
+  .tavolo.v .seats{flex-direction:column;width:13px;height:auto}
+  .seat{width:11px;height:11px;border-radius:50%;border:1.5px solid var(--line);background:transparent}
+  .seat.full{background:var(--amber);border-color:var(--amber)}
+  .t2 .seat.full{background:var(--viola);border-color:var(--viola)}
+  .body{
+    flex:1;border-radius:6px;border:1px solid #4A3826;
+    background:linear-gradient(160deg,#4A3826,#3A2C1E);
+    padding:5px 7px;display:flex;flex-direction:column;gap:2px;justify-content:center;
+    box-shadow:0 2px 0 rgba(0,0,0,.35);overflow:hidden;
+  }
+  .tavolo.parz .body{background:linear-gradient(160deg,#6A4F2C,#4A3826)}
+  .tavolo.pieno .body{background:linear-gradient(160deg,#8A5F24,#5C3F1C);border-color:var(--amber)}
+  .tavolo.sel .body{outline:2px solid var(--amber);outline-offset:2px}
+  .tavolo.target .body{outline:2px dashed var(--verde);outline-offset:2px}
+  .t-nome{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;display:flex;justify-content:space-between;gap:6px;opacity:.9}
+  .t-occ{color:var(--amber)}
+  .tavolo.pieno .t-occ{color:#FFD9A6}
+  .t-ospiti{font-size:10px;line-height:1.3;overflow:hidden}
+  .t-osp{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92}
+  .t-osp b{font-weight:600}
+
+  .banner{
+    position:sticky;bottom:14px;z-index:30;margin-top:10px;
+    background:var(--amber);color:#231703;border-radius:10px;padding:10px 14px;
+    display:flex;align-items:center;gap:10px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.4);
+  }
+
+  /* ---------- Tabella / servizio ---------- */
+  table{width:100%;border-collapse:collapse}
+  th{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+  td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:hover td{background:var(--surface-2)}
+  .num{font-family:"IBM Plex Mono",monospace}
+
+  .srv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+  .srv{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px}
+  .srv h3{font-family:"IBM Plex Mono",monospace;font-size:13px;margin:0 0 6px;display:flex;justify-content:space-between}
+  .srv ul{margin:0;padding-left:16px;font-size:12px;line-height:1.6}
+
+  /* ---------- Modale ---------- */
+  .overlay{position:fixed;inset:0;background:rgba(10,9,15,.7);display:flex;align-items:center;justify-content:center;padding:16px;z-index:60}
+  .modal{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;width:100%;max-width:420px;max-height:90vh;overflow:auto}
+  .modal h3{font-family:"Bricolage Grotesque",sans-serif;margin:0 0 12px;font-size:17px}
+
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;padding:10px 18px;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+
+  @media print{
+    body{background:#fff;color:#000}
+    .no-print{display:none!important}
+    .srv,.panel{border-color:#bbb;background:#fff;break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+/* =========================================================
+   1) CONFIGURAZIONE FIREBASE  ← incolla qui i dati del progetto
+   Se lasci projectId vuoto, l'app lavora in locale sul dispositivo.
+   ========================================================= */
+const FIREBASE_CONFIG = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+
+const TURNI = ["19:00", "21:00"];
+const LS_KEY = "festivalfabbrico_v1";
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+/* ---------- Piantina di partenza: 26 tavoli da 8 = 208 posti ---------- */
+function piantinaDefault(n = 26, cols = 5) {
+  const tavoli = [];
+  for (let i = 0; i < n; i++) {
+    tavoli.push({
+      id: "T" + (i + 1),
+      nome: "T" + (i + 1),
+      posti: 8,
+      orient: "h",
+      x: 40 + (i % cols) * 230,
+      y: 40 + Math.floor(i / cols) * 135
+    });
+  }
+  return tavoli;
+}
+
+/* ---------- Persistenza ---------- */
+let db = null;
+if (FIREBASE_CONFIG.projectId) {
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.firestore();
+    db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+  } catch (e) { console.error(e); }
+}
+
+function leggiLocale() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch (e) { return {}; }
+}
+function scriviLocale(d) { localStorage.setItem(LS_KEY, JSON.stringify(d)); }
+
+/* =========================================================
+   Hook dati
+   ========================================================= */
+function useDati() {
+  const [prenotazioni, setPren] = useState([]);
+  const [tavoli, setTavoli] = useState([]);
+  const [sfondo, setSfondo] = useState("");
+  const [pronto, setPronto] = useState(false);
+
+  useEffect(() => {
+    if (db) {
+      const u1 = db.collection("prenotazioni").onSnapshot(s => {
+        setPren(s.docs.map(d => ({ id: d.id, ...d.data() })));
+        setPronto(true);
+      }, e => { console.error(e); setPronto(true); });
+      const u2 = db.collection("impostazioni").doc("piantina").onSnapshot(d => {
+        const v = d.data();
+        if (v && v.tavoli) { setTavoli(v.tavoli); setSfondo(v.sfondo || ""); }
+        else { const t = piantinaDefault(); setTavoli(t); db.collection("impostazioni").doc("piantina").set({ tavoli: t, sfondo: "" }); }
+      });
+      return () => { u1(); u2(); };
+    }
+    const l = leggiLocale();
+    setPren(l.prenotazioni || []);
+    setTavoli(l.tavoli && l.tavoli.length ? l.tavoli : piantinaDefault());
+    setSfondo(l.sfondo || "");
+    setPronto(true);
+  }, []);
+
+  const salvaLocale = (p, t, s) => scriviLocale({
+    prenotazioni: p !== undefined ? p : prenotazioni,
+    tavoli: t !== undefined ? t : tavoli,
+    sfondo: s !== undefined ? s : sfondo
+  });
+
+  const salvaPren = useCallback((p) => {
+    const dati = { ...p };
+    if (db) {
+      const id = dati.id || uid();
+      delete dati.id;
+      db.collection("prenotazioni").doc(id).set(dati, { merge: true });
+      return id;
+    }
+    const id = p.id || uid();
+    setPren(prev => {
+      const next = prev.some(x => x.id === id)
+        ? prev.map(x => (x.id === id ? { ...x, ...dati, id } : x))
+        : [...prev, { ...dati, id }];
+      salvaLocale(next);
+      return next;
+    });
+    return id;
+  }, [prenotazioni, tavoli, sfondo]);
+
+  const eliminaPren = useCallback((id) => {
+    if (db) return db.collection("prenotazioni").doc(id).delete();
+    setPren(prev => { const next = prev.filter(x => x.id !== id); salvaLocale(next); return next; });
+  }, [prenotazioni, tavoli, sfondo]);
+
+  const salvaPiantina = useCallback((t, s) => {
+    const nuovoSfondo = s !== undefined ? s : sfondo;
+    setTavoli(t); if (s !== undefined) setSfondo(s);
+    if (db) return db.collection("impostazioni").doc("piantina").set({ tavoli: t, sfondo: nuovoSfondo });
+    salvaLocale(undefined, t, nuovoSfondo);
+  }, [prenotazioni, sfondo]);
+
+  return { prenotazioni, tavoli, sfondo, pronto, salvaPren, eliminaPren, salvaPiantina, cloud: !!db };
+}
+
+/* =========================================================
+   Utilità
+   ========================================================= */
+const postiAssegnati = (p) => (p.assegnazioni || []).reduce((s, a) => s + a.posti, 0);
+const daSedere = (p) => Math.max(0, (p.pax || 0) - postiAssegnati(p));
+const attive = (l, turno) => l.filter(p => p.stato !== "annullata" && p.turno === turno);
+
+function occupazione(tavoli, prenotazioni, turno) {
+  const m = {};
+  tavoli.forEach(t => (m[t.id] = { posti: 0, ospiti: [] }));
+  attive(prenotazioni, turno).forEach(p => {
+    (p.assegnazioni || []).forEach(a => {
+      if (!m[a.tavolo]) m[a.tavolo] = { posti: 0, ospiti: [] };
+      m[a.tavolo].posti += a.posti;
+      m[a.tavolo].ospiti.push({ id: p.id, nome: p.nome, posti: a.posti, arrivata: p.stato === "arrivata", walkIn: !!p.walkIn });
+    });
+  });
+  return m;
+}
+
+/* =========================================================
+   Componente tavolo
+   ========================================================= */
+function Tavolo({ t, occ, selezionato, target, turnoIdx, modifica, onClick, onDragStart }) {
+  const perLato = Math.ceil(t.posti / 2);
+  const sopra = perLato, sotto = t.posti - perLato;
+  const orizz = t.orient !== "v";
+  const lung = 30 + perLato * 30;
+  const W = orizz ? lung : 96, H = orizz ? 96 : lung;
+  const pieno = occ.posti >= t.posti, parziale = occ.posti > 0 && !pieno;
+  const dots = (n, off) => Array.from({ length: n }, (_, i) => (
+    <span key={i} className={"seat" + (off + i < occ.posti ? " full" : "")} />
+  ));
+  return (
+    <div
+      className={"tavolo" + (orizz ? "" : " v") + (pieno ? " pieno" : parziale ? " parz" : "") +
+        (selezionato ? " sel" : "") + (target ? " target" : "") + (turnoIdx === 1 ? " t2" : "")}
+      style={{ left: t.x, top: t.y, width: W, height: H }}
+      onPointerDown={modifica ? (e) => onDragStart(e, t) : undefined}
+      onClick={() => onClick(t)}
+      title={t.nome}
+    >
+      <div className="seats">{dots(sopra, 0)}</div>
+      <div className="body">
+        <div className="t-nome"><span>{t.nome}</span><span className="t-occ">{occ.posti}/{t.posti}</span></div>
+        <div className="t-ospiti">
+          {occ.ospiti.slice(0, 3).map(o => (
+            <div key={o.id + o.posti} className="t-osp">{o.arrivata ? "● " : "○ "}<b>{o.nome}</b> {o.posti}</div>
+          ))}
+          {occ.ospiti.length > 3 && <div className="t-osp">+{occ.ospiti.length - 3} altri</div>}
+        </div>
+      </div>
+      <div className="seats">{dots(sotto, sopra)}</div>
+    </div>
+  );
+}
+
+/* =========================================================
+   App
+   ========================================================= */
+function App() {
+  const D = useDati();
+  const [turno, setTurno] = useState(TURNI[0]);
+  const [vista, setVista] = useState("piantina");
+  const [sel, setSel] = useState(null);          // id prenotazione da sedere
+  const [modifica, setModifica] = useState(false); // sposta tavoli
+  const [zoom, setZoom] = useState(0.85);
+  const [cerca, setCerca] = useState("");
+  const [filtro, setFiltro] = useState("tutte");
+  const [modale, setModale] = useState(null);
+  const [toast, setToast] = useState("");
+  const planRef = useRef(null);
+  const drag = useRef(null);
+
+  const mostra = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
+  const turnoIdx = TURNI.indexOf(turno);
+
+  const occ = useMemo(() => occupazione(D.tavoli, D.prenotazioni, turno), [D.tavoli, D.prenotazioni, turno]);
+  const delTurno = useMemo(() => attive(D.prenotazioni, turno), [D.prenotazioni, turno]);
+
+  const totali = useMemo(() => {
+    const posti = D.tavoli.reduce((s, t) => s + t.posti, 0);
+    const prenotati = delTurno.reduce((s, p) => s + (p.pax || 0), 0);
+    const seduti = delTurno.reduce((s, p) => s + postiAssegnati(p), 0);
+    const arrivati = delTurno.filter(p => p.stato === "arrivata").reduce((s, p) => s + (p.pax || 0), 0);
+    return { posti, prenotati, seduti, arrivati, daSedere: prenotati - seduti, liberi: posti - seduti };
+  }, [delTurno, D.tavoli]);
+
+  /* --- Selezione + assegnazione --- */
+  const clickTavolo = (t) => {
+    if (drag.current && drag.current.mosso) return;
+    if (!sel) { setModale({ tipo: "tavolo", t }); return; }
+    const p = D.prenotazioni.find(x => x.id === sel);
+    if (!p) return setSel(null);
+    const liberi = t.posti - (occ[t.id] ? occ[t.id].posti : 0);
+    if (liberi <= 0) return mostra(t.nome + " è pieno");
+    const resta = daSedere(p);
+    if (resta <= 0) { setSel(null); return mostra(p.nome + " è già a posto"); }
+    const n = Math.min(resta, liberi);
+    const ass = [...(p.assegnazioni || [])];
+    const i = ass.findIndex(a => a.tavolo === t.id);
+    if (i >= 0) ass[i] = { ...ass[i], posti: ass[i].posti + n }; else ass.push({ tavolo: t.id, posti: n });
+    D.salvaPren({ ...p, assegnazioni: ass });
+    mostra(p.nome + " → " + t.nome + " (" + n + " posti)");
+    if (resta - n <= 0) setSel(null);
+  };
+
+  const liberaTavolo = (tid, pid) => {
+    const p = D.prenotazioni.find(x => x.id === pid);
+    if (!p) return;
+    D.salvaPren({ ...p, assegnazioni: (p.assegnazioni || []).filter(a => a.tavolo !== tid) });
+    mostra(p.nome + " tolto da " + tid);
+  };
+
+  /* --- Spostamento tavoli --- */
+  const dragStart = (e, t) => {
+    e.preventDefault();
+    const r = planRef.current.getBoundingClientRect();
+    drag.current = { id: t.id, dx: (e.clientX - r.left) / zoom - t.x, dy: (e.clientY - r.top) / zoom - t.y, mosso: false };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const dragMove = (e) => {
+    if (!drag.current) return;
+    const r = planRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.round(((e.clientX - r.left) / zoom - drag.current.dx) / 5) * 5);
+    const y = Math.max(0, Math.round(((e.clientY - r.top) / zoom - drag.current.dy) / 5) * 5);
+    drag.current.mosso = true;
+    drag.current.pos = { x, y };
+    D.salvaPiantina(D.tavoli.map(t => (t.id === drag.current.id ? { ...t, x, y } : t)));
+  };
+  const dragEnd = () => { setTimeout(() => { drag.current = null; }, 50); };
+
+  /* --- Prenotazioni: filtro --- */
+  const lista = useMemo(() => {
+    let l = D.prenotazioni.filter(p => p.turno === turno);
+    if (cerca.trim()) l = l.filter(p => (p.nome || "").toLowerCase().includes(cerca.toLowerCase()));
+    if (filtro === "dasedere") l = l.filter(p => p.stato !== "annullata" && daSedere(p) > 0);
+    if (filtro === "sedute") l = l.filter(p => p.stato !== "annullata" && daSedere(p) === 0 && postiAssegnati(p) > 0);
+    if (filtro === "arrivate") l = l.filter(p => p.stato === "arrivata");
+    return l.sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+  }, [D.prenotazioni, turno, cerca, filtro]);
+
+  /* --- Azioni prenotazione --- */
+  const nuovaWalkIn = () => {
+    const n = D.prenotazioni.filter(p => p.walkIn).length + 1;
+    const id = D.salvaPren({ nome: "Walk-in " + n, pax: 2, turno, stato: "arrivata", walkIn: true, assegnazioni: [], creata: Date.now() });
+    setSel(id || null); setVista("piantina");
+    mostra("Walk-in creato: scegli il tavolo");
+  };
+  const toggleArrivo = (p) => D.salvaPren({ ...p, stato: p.stato === "arrivata" ? "attesa" : "arrivata" });
+
+  const esportaCsv = () => {
+    const righe = [["Nome", "Persone", "Turno", "Tavoli", "Telefono", "Stato", "Note"]];
+    D.prenotazioni.forEach(p => righe.push([
+      p.nome, p.pax, p.turno,
+      (p.assegnazioni || []).map(a => a.tavolo + "(" + a.posti + ")").join(" "),
+      p.telefono || "", p.stato || "attesa", (p.note || "").replace(/[\n;]/g, " ")
+    ]));
+    const csv = righe.map(r => r.join(";")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }));
+    a.download = "prenotazioni-festival.csv"; a.click();
+  };
+
+  if (!D.pronto) return <div style={{ padding: 40 }} className="hint">Carico…</div>;
+
+  return (
+    <div className="app">
+      {/* ---------- Testata ---------- */}
+      <header className="top no-print">
+        <div className="top-row">
+          <h1 className="brand">Festival <span>Fabbrico</span><small>Sala e prenotazioni</small></h1>
+          <div className="turni">
+            {TURNI.map((t, i) => (
+              <button key={t} className={"turno-btn" + (turno === t ? " on" : "") + (i === 1 ? " t2" : "")} onClick={() => { setTurno(t); setSel(null); }}>
+                {t}<em>{i === 0 ? "1º turno" : "2º turno"}</em>
+              </button>
+            ))}
+          </div>
+          <div className="spacer" />
+          <div className="stats">
+            <div className="stat"><b className="num">{totali.prenotati}</b><i>prenotati</i></div>
+            <div className="stat ok"><b className="num">{totali.seduti}</b><i>seduti</i></div>
+            <div className={"stat " + (totali.daSedere > 0 ? "warn" : "")}><b className="num">{totali.daSedere}</b><i>da sedere</i></div>
+            <div className={"stat " + (totali.liberi < 0 ? "bad" : "")}><b className="num">{totali.liberi}</b><i>posti liberi</i></div>
+            <div className="stat"><b className="num">{totali.arrivati}</b><i>arrivati</i></div>
+          </div>
+        </div>
+        <div className="top-row" style={{ marginTop: 8 }}>
+          <div className="tabs">
+            {[["piantina", "Piantina"], ["registro", "Registro"], ["servizio", "Servizio & cucina"], ["impostazioni", "Impostazioni"]].map(([k, l]) => (
+              <button key={k} className={"tab" + (vista === k ? " on" : "")} onClick={() => setVista(k)}>{l}</button>
+            ))}
+          </div>
+          <div className="spacer" />
+          <div className="cloud">
+            <span className={"dot " + (D.cloud ? "live" : "local")} />
+            {D.cloud ? "sincronizzato" : "solo su questo dispositivo"}
+          </div>
+        </div>
+      </header>
+
+      {/* ---------- PIANTINA ---------- */}
+      {vista === "piantina" && (
+        <div className="split">
+          <div className="panel no-print">
+            <h2>Prenotazioni {turno}</h2>
+            <input className="search" placeholder="Cerca un nome…" value={cerca} onChange={e => setCerca(e.target.value)} />
+            <div className="filtri">
+              {[["tutte", "Tutte"], ["dasedere", "Da sedere"], ["sedute", "A tavola"], ["arrivate", "Arrivate"]].map(([k, l]) => (
+                <button key={k} className={"chip" + (filtro === k ? " on" : "")} onClick={() => setFiltro(k)}>{l}</button>
+              ))}
+            </div>
+            <div className="row" style={{ marginBottom: 10 }}>
+              <button className="btn sm" onClick={() => setModale({ tipo: "pren", dati: { turno } })}>+ Prenotazione</button>
+              <button className="btn ghost sm" onClick={nuovaWalkIn}>+ Walk-in</button>
+            </div>
+            <div className="lista">
+              {lista.length === 0 && <p className="hint">Nessuna prenotazione per questo turno. Aggiungine una qui sopra.</p>}
+              {lista.map(p => {
+                const resta = daSedere(p);
+                return (
+                  <div key={p.id}
+                    className={"pren" + (sel === p.id ? " sel" : "") + (resta === 0 && postiAssegnati(p) > 0 ? " done" : "") + (p.stato === "annullata" ? " annullata" : "")}
+                    onClick={() => setSel(sel === p.id ? null : p.id)}>
+                    <div className="pren-top">
+                      <span className="pren-nome">{p.walkIn ? "◇ " : ""}{p.nome}</span>
+                      <span className="pax num">{p.pax}</span>
+                    </div>
+                    <div className="pren-meta">
+                      {(p.assegnazioni || []).map(a => <span key={a.tavolo} className="tag seat">{a.tavolo} · {a.posti}</span>)}
+                      {resta > 0 && <span className="tag">{resta} da sedere</span>}
+                      {p.stato === "arrivata" && <span className="tag" style={{ color: "var(--verde)", borderColor: "rgba(79,195,161,.4)" }}>arrivata</span>}
+                      {p.telefono && <span>{p.telefono}</span>}
+                    </div>
+                    {p.note && <div className="hint" style={{ marginTop: 4 }}>{p.note}</div>}
+                    {sel === p.id && (
+                      <div className="pren-actions" onClick={e => e.stopPropagation()}>
+                        <button className="btn ghost sm" onClick={() => toggleArrivo(p)}>{p.stato === "arrivata" ? "Non arrivata" : "Segna arrivata"}</button>
+                        <button className="btn ghost sm" onClick={() => setModale({ tipo: "pren", dati: p })}>Modifica</button>
+                        {postiAssegnati(p) > 0 && <button className="btn ghost sm" onClick={() => { D.salvaPren({ ...p, assegnazioni: [] }); mostra("Tavoli liberati"); }}>Libera</button>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <div className="plan-bar no-print">
+              <button className={"btn sm " + (modifica ? "" : "ghost")} onClick={() => setModifica(!modifica)}>
+                {modifica ? "Fine spostamento" : "Sposta tavoli"}
+              </button>
+              <button className="btn ghost sm" onClick={() => setZoom(z => Math.max(0.4, +(z - 0.1).toFixed(2)))}>−</button>
+              <span className="num" style={{ minWidth: 42, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
+              <button className="btn ghost sm" onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))}>+</button>
+              <div className="spacer" />
+              <span className="hint">{sel ? "Tocca un tavolo per sedere la prenotazione selezionata" : "Tocca un tavolo per vederne il dettaglio"}</span>
+            </div>
+
+            <div className="plan-wrap">
+              <div className="plan" ref={planRef} style={{ transform: "scale(" + zoom + ")" }}
+                onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd}>
+                {D.sfondo && <div className="plan-bg" style={{ backgroundImage: "url(" + D.sfondo + ")" }} />}
+                {D.tavoli.map(t => (
+                  <Tavolo key={t.id} t={t} occ={occ[t.id] || { posti: 0, ospiti: [] }}
+                    selezionato={false} target={!!sel && (occ[t.id] ? occ[t.id].posti : 0) < t.posti}
+                    turnoIdx={turnoIdx} modifica={modifica} onClick={clickTavolo} onDragStart={dragStart} />
+                ))}
+              </div>
+            </div>
+
+            {sel && (
+              <div className="banner no-print">
+                <span>Sto sedendo: <b>{(D.prenotazioni.find(p => p.id === sel) || {}).nome}</b> — {daSedere(D.prenotazioni.find(p => p.id === sel) || {})} persone da sistemare</span>
+                <div className="spacer" />
+                <button className="btn ghost sm" style={{ color: "#231703", borderColor: "rgba(35,23,3,.35)" }} onClick={() => setSel(null)}>Annulla</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ---------- REGISTRO ---------- */}
+      {vista === "registro" && (
+        <div className="panel" style={{ marginTop: 16 }}>
+          <div className="plan-bar">
+            <h2 style={{ margin: 0 }}>Registro prenotazioni</h2>
+            <div className="spacer" />
+            <button className="btn sm" onClick={() => setModale({ tipo: "pren", dati: { turno } })}>+ Prenotazione</button>
+            <button className="btn ghost sm" onClick={() => setModale({ tipo: "incolla" })}>Incolla elenco</button>
+            <button className="btn ghost sm" onClick={esportaCsv}>Esporta CSV</button>
+            <button className="btn ghost sm" onClick={() => window.print()}>Stampa</button>
+          </div>
+          <table>
+            <thead><tr><th>Nome</th><th>Pers.</th><th>Turno</th><th>Tavoli</th><th>Telefono</th><th>Stato</th><th>Note</th><th></th></tr></thead>
+            <tbody>
+              {D.prenotazioni.slice().sort((a, b) => (a.turno || "").localeCompare(b.turno || "") || (a.nome || "").localeCompare(b.nome || "")).map(p => (
+                <tr key={p.id}>
+                  <td><b>{p.walkIn ? "◇ " : ""}{p.nome}</b></td>
+                  <td className="num">{p.pax}</td>
+                  <td className="num">{p.turno}</td>
+                  <td className="num">{(p.assegnazioni || []).map(a => a.tavolo + "(" + a.posti + ")").join(" ") || "—"}</td>
+                  <td>{p.telefono || "—"}</td>
+                  <td>{p.stato || "attesa"}</td>
+                  <td className="hint">{p.note || ""}</td>
+                  <td className="no-print" style={{ whiteSpace: "nowrap" }}>
+                    <button className="btn ghost sm" onClick={() => setModale({ tipo: "pren", dati: p })}>Modifica</button>
+                  </td>
+                </tr>
+              ))}
+              {D.prenotazioni.length === 0 && <tr><td colSpan="8" className="hint">Il registro è vuoto. Aggiungi la prima prenotazione.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ---------- SERVIZIO ---------- */}
+      {vista === "servizio" && (
+        <div className="panel" style={{ marginTop: 16 }}>
+          <div className="plan-bar">
+            <h2 style={{ margin: 0 }}>Servizio — turno {turno}</h2>
+            <div className="spacer" />
+            <span className="hint no-print">Coperti da servire: <b className="num">{totali.seduti}</b></span>
+            <button className="btn ghost sm no-print" onClick={() => window.print()}>Stampa</button>
+          </div>
+          <div className="srv-grid">
+            {D.tavoli.filter(t => (occ[t.id] || {}).posti > 0).map(t => (
+              <div key={t.id} className="srv">
+                <h3><span>{t.nome}</span><span className="num">{occ[t.id].posti}/{t.posti}</span></h3>
+                <ul>
+                  {occ[t.id].ospiti.map(o => (
+                    <li key={o.id}>{o.nome} — {o.posti} {o.arrivata ? "✓" : ""}
+                      <button className="btn ghost sm no-print" style={{ marginLeft: 6, padding: "0 6px" }} onClick={() => liberaTavolo(t.id, o.id)}>×</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {totali.seduti === 0 && <p className="hint">Nessun tavolo occupato in questo turno.</p>}
+          </div>
+        </div>
+      )}
+
+      {/* ---------- IMPOSTAZIONI ---------- */}
+      {vista === "impostazioni" && (
+        <div className="split" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <div className="panel">
+            <h2>Piantina</h2>
+            <p className="hint">Rigenera la disposizione dei tavoli. Attenzione: le persone già sedute su tavoli rimossi restano da risistemare.</p>
+            <Genera onGenera={(n, cols, posti) => {
+              const t = piantinaDefault(n, cols).map(x => ({ ...x, posti }));
+              D.salvaPiantina(t); mostra(n + " tavoli generati");
+            }} />
+            <div className="field" style={{ marginTop: 14 }}>
+              <label>Immagine di sfondo (URL della cartina)</label>
+              <input value={D.sfondo} onChange={e => D.salvaPiantina(D.tavoli, e.target.value)} placeholder="https://…/cartina.jpg" />
+            </div>
+            <div className="row" style={{ marginTop: 12 }}>
+              <button className="btn ghost sm" onClick={() => {
+                const nome = prompt("Nome del nuovo tavolo:", "T" + (D.tavoli.length + 1));
+                if (!nome) return;
+                D.salvaPiantina([...D.tavoli, { id: uid(), nome, posti: 8, orient: "h", x: 40, y: 40 }]);
+              }}>Aggiungi tavolo</button>
+            </div>
+          </div>
+          <div className="panel">
+            <h2>Dati e collegamenti</h2>
+            <p className="hint">
+              Stato archivio: <b>{D.cloud ? "Firebase attivo" : "locale (nessun Firebase configurato)"}</b>.<br />
+              Tavoli: <b className="num">{D.tavoli.length}</b> · Posti totali: <b className="num">{totali.posti}</b> · Prenotazioni: <b className="num">{D.prenotazioni.length}</b>
+            </p>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button className="btn ghost sm" onClick={esportaCsv}>Esporta prenotazioni CSV</button>
+              <button className="btn ghost sm" onClick={() => {
+                const dati = { tavoli: D.tavoli, prenotazioni: D.prenotazioni };
+                navigator.clipboard.writeText(JSON.stringify(dati, null, 2));
+                mostra("Dati copiati negli appunti");
+              }}>Copia JSON</button>
+            </div>
+            <p className="hint" style={{ marginTop: 14 }}>
+              I codici tavolo (T1, T2…) sono pensati per corrispondere ai tavoli di CassaPro: quando colleghiamo le due app,
+              il numero tavolo e i coperti seduti diventano l'aggancio per aprire il conto.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- Modali ---------- */}
+      {modale && modale.tipo === "pren" && (
+        <ModalePren dati={modale.dati} onChiudi={() => setModale(null)}
+          onSalva={(p) => { D.salvaPren(p); setModale(null); mostra("Prenotazione salvata"); }}
+          onElimina={(id) => { D.eliminaPren(id); setModale(null); mostra("Prenotazione eliminata"); }} />
+      )}
+      {modale && modale.tipo === "tavolo" && (
+        <ModaleTavolo t={modale.t} occ={occ[modale.t.id] || { posti: 0, ospiti: [] }}
+          onChiudi={() => setModale(null)}
+          onLibera={(pid) => liberaTavolo(modale.t.id, pid)}
+          onSalva={(t) => { D.salvaPiantina(D.tavoli.map(x => (x.id === t.id ? t : x))); setModale(null); }}
+          onElimina={(id) => { D.salvaPiantina(D.tavoli.filter(x => x.id !== id)); setModale(null); mostra("Tavolo rimosso"); }} />
+      )}
+      {modale && modale.tipo === "incolla" && (
+        <ModaleIncolla turno={turno} onChiudi={() => setModale(null)}
+          onImporta={(righe) => { righe.forEach(r => D.salvaPren(r)); setModale(null); mostra(righe.length + " prenotazioni importate"); }} />
+      )}
+
+      {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+/* ---------- Modale prenotazione ---------- */
+function ModalePren({ dati, onSalva, onElimina, onChiudi }) {
+  const [f, setF] = useState({
+    nome: "", pax: 2, turno: TURNI[0], telefono: "", note: "", stato: "attesa", assegnazioni: [], ...dati
+  });
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  return (
+    <div className="overlay" onClick={onChiudi}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h3>{f.id ? "Modifica prenotazione" : "Nuova prenotazione"}</h3>
+        <div className="field"><label>Nome</label>
+          <input autoFocus value={f.nome} onChange={e => set("nome", e.target.value)} placeholder="Es. Fam. Rossi" /></div>
+        <div className="row">
+          <div className="field"><label>N. persone</label>
+            <input type="number" min="1" value={f.pax} onChange={e => set("pax", parseInt(e.target.value) || 1)} /></div>
+          <div className="field"><label>Turno</label>
+            <select value={f.turno} onChange={e => set("turno", e.target.value)}>{TURNI.map(t => <option key={t}>{t}</option>)}</select></div>
+        </div>
+        <div className="row">
+          <div className="field"><label>Telefono</label>
+            <input value={f.telefono} onChange={e => set("telefono", e.target.value)} /></div>
+          <div className="field"><label>Stato</label>
+            <select value={f.stato} onChange={e => set("stato", e.target.value)}>
+              <option value="attesa">In attesa</option><option value="arrivata">Arrivata</option><option value="annullata">Annullata</option>
+            </select></div>
+        </div>
+        <div className="field"><label>Note (allergie, bambini, seggioloni…)</label>
+          <textarea value={f.note} onChange={e => set("note", e.target.value)} /></div>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn" onClick={() => { if (!f.nome.trim()) return; onSalva({ ...f, nome: f.nome.trim(), creata: f.creata || Date.now() }); }}>Salva</button>
+          <button className="btn ghost" onClick={onChiudi}>Annulla</button>
+        </div>
+        {f.id && <button className="btn danger block sm" style={{ marginTop: 8 }}
+          onClick={() => { if (confirm("Eliminare " + f.nome + "?")) onElimina(f.id); }}>Elimina prenotazione</button>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Modale tavolo ---------- */
+function ModaleTavolo({ t, occ, onSalva, onElimina, onLibera, onChiudi }) {
+  const [f, setF] = useState({ ...t });
+  return (
+    <div className="overlay" onClick={onChiudi}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h3>Tavolo {t.nome}</h3>
+        <p className="hint">Occupati {occ.posti} di {t.posti} posti.</p>
+        {occ.ospiti.length > 0 && (
+          <div style={{ margin: "10px 0" }}>
+            {occ.ospiti.map(o => (
+              <div key={o.id} className="pren" style={{ marginBottom: 6 }}>
+                <div className="pren-top"><span className="pren-nome">{o.nome}</span><span className="pax num">{o.posti}</span></div>
+                <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { onLibera(o.id); onChiudi(); }}>Togli dal tavolo</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="row">
+          <div className="field"><label>Nome tavolo</label><input value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} /></div>
+          <div className="field"><label>Posti</label><input type="number" min="2" max="14" value={f.posti} onChange={e => setF({ ...f, posti: parseInt(e.target.value) || 8 })} /></div>
+        </div>
+        <div className="field"><label>Orientamento</label>
+          <select value={f.orient} onChange={e => setF({ ...f, orient: e.target.value })}>
+            <option value="h">Orizzontale</option><option value="v">Verticale</option>
+          </select></div>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn" onClick={() => onSalva(f)}>Salva</button>
+          <button className="btn ghost" onClick={onChiudi}>Chiudi</button>
+        </div>
+        <button className="btn danger block sm" style={{ marginTop: 8 }}
+          onClick={() => { if (confirm("Rimuovere il tavolo " + t.nome + "?")) onElimina(t.id); }}>Rimuovi tavolo</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Modale importazione ---------- */
+function ModaleIncolla({ turno, onImporta, onChiudi }) {
+  const [txt, setTxt] = useState("");
+  const parse = () => {
+    const righe = txt.split("\n").map(r => r.trim()).filter(Boolean).map(r => {
+      const p = r.split(/[;,\t]/).map(x => x.trim());
+      return {
+        nome: p[0], pax: parseInt(p[1]) || 2,
+        turno: (p[2] && TURNI.includes(p[2])) ? p[2] : turno,
+        telefono: p[3] || "", note: p[4] || "", stato: "attesa", assegnazioni: [], creata: Date.now()
+      };
+    }).filter(r => r.nome);
+    onImporta(righe);
+  };
+  return (
+    <div className="overlay" onClick={onChiudi}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h3>Incolla un elenco</h3>
+        <p className="hint">Una prenotazione per riga: <code>Nome; persone; turno; telefono; note</code>. Bastano nome e persone.</p>
+        <textarea style={{ minHeight: 180, marginTop: 8 }} value={txt} onChange={e => setTxt(e.target.value)}
+          placeholder={"Fam. Rossi; 6; 19:00; 3401234567\nBar Centrale; 4; 21:00"} />
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn" onClick={parse}>Importa</button>
+          <button className="btn ghost" onClick={onChiudi}>Annulla</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Generatore piantina ---------- */
+function Genera({ onGenera }) {
+  const [n, setN] = useState(26), [c, setC] = useState(5), [p, setP] = useState(8);
+  return (
+    <div>
+      <div className="row">
+        <div className="field"><label>N. tavoli</label><input type="number" min="1" max="60" value={n} onChange={e => setN(parseInt(e.target.value) || 1)} /></div>
+        <div className="field"><label>Per fila</label><input type="number" min="1" max="12" value={c} onChange={e => setC(parseInt(e.target.value) || 1)} /></div>
+        <div className="field"><label>Posti</label><input type="number" min="2" max="14" value={p} onChange={e => setP(parseInt(e.target.value) || 8)} /></div>
+      </div>
+      <p className="hint">Capienza risultante: <b className="num">{n * p}</b> posti per turno.</p>
+      <button className="btn ghost sm" onClick={() => { if (confirm("Rigenerare la piantina?")) onGenera(n, c, p); }}>Rigenera piantina</button>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
