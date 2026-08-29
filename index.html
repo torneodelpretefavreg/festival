@@ -187,6 +187,23 @@
 
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;padding:10px 18px;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 
+  /* ---------- Accesso ---------- */
+  .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .login-card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px}
+  .login-card .brand{margin-bottom:22px}
+  .login-err{color:var(--rosso);font-size:12px;margin:8px 0 0}
+  .utente-chip{
+    display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);
+    border-radius:99px;padding:5px 6px 5px 12px;font-size:12px;
+  }
+  .utente-chip b{font-weight:600}
+  .ruolo{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--amber)}
+  .firma{font-size:10px;color:var(--muted);font-family:"IBM Plex Mono",monospace}
+  .log-lista{display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;font-size:12px}
+  .log-riga{display:flex;gap:8px;padding:6px 8px;border-bottom:1px solid var(--line)}
+  .log-riga time{font-family:"IBM Plex Mono",monospace;color:var(--muted);white-space:nowrap}
+  .log-riga b{color:var(--amber);font-weight:600;white-space:nowrap}
+
   @media print{
     body{background:#fff;color:#000}
     .no-print{display:none!important}
@@ -223,6 +240,18 @@ const TURNI = ["19:00", "21:00"];
 const LS_KEY = "festivalfabbrico_v1";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
+/* =========================================================
+   2) ACCESSO
+   La password di ogni utente coincide con il suo nome utente
+   (gianluca → gianluca). L'unica eccezione è l'admin qui sotto.
+   ========================================================= */
+const ADMIN_USER = "admin";
+const ADMIN_PASS = "dado";
+const UTENTI_DEFAULT = [{ nome: "admin", ruolo: "admin" }];
+const LS_UTENTE = "festivalfabbrico_utente";
+const norm = (s) => (s || "").trim().toLowerCase();
+const quando = (ts) => ts ? new Date(ts).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+
 /* ---------- Piantina di partenza: 26 tavoli da 8 = 208 posti ---------- */
 function piantinaDefault(n = 26, cols = 5) {
   const tavoli = [];
@@ -254,6 +283,10 @@ function leggiLocale() {
 }
 function scriviLocale(d) { localStorage.setItem(LS_KEY, JSON.stringify(d)); }
 
+/* Chi sta usando l'app in questo momento: serve per firmare ogni modifica */
+let UTENTE_CORRENTE = null;
+const firma = () => ({ modificatoDa: UTENTE_CORRENTE ? UTENTE_CORRENTE.nome : "?", modificatoIl: Date.now() });
+
 /* =========================================================
    Hook dati
    ========================================================= */
@@ -261,6 +294,8 @@ function useDati() {
   const [prenotazioni, setPren] = useState([]);
   const [tavoli, setTavoli] = useState([]);
   const [sfondo, setSfondo] = useState("");
+  const [utenti, setUtenti] = useState(UTENTI_DEFAULT);
+  const [attivita, setAttivita] = useState([]);
   const [pronto, setPronto] = useState(false);
 
   useEffect(() => {
@@ -274,23 +309,28 @@ function useDati() {
         if (v && v.tavoli) { setTavoli(v.tavoli); setSfondo(v.sfondo || ""); }
         else { const t = piantinaDefault(); setTavoli(t); db.collection("impostazioni").doc("piantina").set({ tavoli: t, sfondo: "" }); }
       });
-      return () => { u1(); u2(); };
+      const u3 = db.collection("impostazioni").doc("utenti").onSnapshot(d => {
+        const v = d.data();
+        if (v && v.lista) setUtenti(v.lista);
+        else db.collection("impostazioni").doc("utenti").set({ lista: UTENTI_DEFAULT });
+      });
+      const u4 = db.collection("attivita").orderBy("ts", "desc").limit(150)
+        .onSnapshot(s => setAttivita(s.docs.map(d => d.data())), e => console.error(e));
+      return () => { u1(); u2(); u3(); u4(); };
     }
     const l = leggiLocale();
     setPren(l.prenotazioni || []);
     setTavoli(l.tavoli && l.tavoli.length ? l.tavoli : piantinaDefault());
     setSfondo(l.sfondo || "");
+    setUtenti(l.utenti && l.utenti.length ? l.utenti : UTENTI_DEFAULT);
+    setAttivita(l.attivita || []);
     setPronto(true);
   }, []);
 
-  const salvaLocale = (p, t, s) => scriviLocale({
-    prenotazioni: p !== undefined ? p : prenotazioni,
-    tavoli: t !== undefined ? t : tavoli,
-    sfondo: s !== undefined ? s : sfondo
-  });
+  const salvaLocale = (extra) => scriviLocale({ prenotazioni, tavoli, sfondo, utenti, attivita, ...extra });
 
   const salvaPren = useCallback((p) => {
-    const dati = { ...p };
+    const dati = { ...p, ...firma() };
     if (db) {
       const id = dati.id || uid();
       delete dati.id;
@@ -302,25 +342,37 @@ function useDati() {
       const next = prev.some(x => x.id === id)
         ? prev.map(x => (x.id === id ? { ...x, ...dati, id } : x))
         : [...prev, { ...dati, id }];
-      salvaLocale(next);
+      salvaLocale({ prenotazioni: next });
       return next;
     });
     return id;
-  }, [prenotazioni, tavoli, sfondo]);
+  }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
 
   const eliminaPren = useCallback((id) => {
     if (db) return db.collection("prenotazioni").doc(id).delete();
-    setPren(prev => { const next = prev.filter(x => x.id !== id); salvaLocale(next); return next; });
-  }, [prenotazioni, tavoli, sfondo]);
+    setPren(prev => { const next = prev.filter(x => x.id !== id); salvaLocale({ prenotazioni: next }); return next; });
+  }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
 
   const salvaPiantina = useCallback((t, s) => {
     const nuovoSfondo = s !== undefined ? s : sfondo;
     setTavoli(t); if (s !== undefined) setSfondo(s);
     if (db) return db.collection("impostazioni").doc("piantina").set({ tavoli: t, sfondo: nuovoSfondo });
-    salvaLocale(undefined, t, nuovoSfondo);
-  }, [prenotazioni, sfondo]);
+    salvaLocale({ tavoli: t, sfondo: nuovoSfondo });
+  }, [prenotazioni, sfondo, utenti, attivita]);
 
-  return { prenotazioni, tavoli, sfondo, pronto, salvaPren, eliminaPren, salvaPiantina, cloud: !!db };
+  const salvaUtenti = useCallback((lista) => {
+    setUtenti(lista);
+    if (db) return db.collection("impostazioni").doc("utenti").set({ lista });
+    salvaLocale({ utenti: lista });
+  }, [prenotazioni, tavoli, sfondo, attivita]);
+
+  const log = useCallback((azione) => {
+    const voce = { utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.nome : "?", azione, ts: Date.now() };
+    if (db) { db.collection("attivita").add(voce).catch(e => console.error(e)); return; }
+    setAttivita(prev => { const next = [voce, ...prev].slice(0, 200); salvaLocale({ attivita: next }); return next; });
+  }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
+
+  return { prenotazioni, tavoli, sfondo, utenti, attivita, pronto, salvaPren, eliminaPren, salvaPiantina, salvaUtenti, log, cloud: !!db };
 }
 
 /* =========================================================
@@ -385,6 +437,13 @@ function Tavolo({ t, occ, selezionato, target, turnoIdx, modifica, onClick, onDr
    ========================================================= */
 function App() {
   const D = useDati();
+  const [utente, setUtente] = useState(() => { try { return JSON.parse(localStorage.getItem(LS_UTENTE)); } catch (e) { return null; } });
+  const isAdmin = !!utente && utente.ruolo === "admin";
+  UTENTE_CORRENTE = utente;
+
+  const entra = (u) => { UTENTE_CORRENTE = u; localStorage.setItem(LS_UTENTE, JSON.stringify(u)); setUtente(u); };
+  const esci = () => { localStorage.removeItem(LS_UTENTE); UTENTE_CORRENTE = null; setUtente(null); };
+
   const [turno, setTurno] = useState(TURNI[0]);
   const [vista, setVista] = useState("piantina");
   const [sel, setSel] = useState(null);          // id prenotazione da sedere
@@ -426,6 +485,7 @@ function App() {
     const i = ass.findIndex(a => a.tavolo === t.id);
     if (i >= 0) ass[i] = { ...ass[i], posti: ass[i].posti + n }; else ass.push({ tavolo: t.id, posti: n });
     D.salvaPren({ ...p, assegnazioni: ass });
+    D.log("ha seduto " + p.nome + " (" + n + ") al tavolo " + t.nome + " — turno " + turno);
     mostra(p.nome + " → " + t.nome + " (" + n + " posti)");
     if (resta - n <= 0) setSel(null);
   };
@@ -434,6 +494,7 @@ function App() {
     const p = D.prenotazioni.find(x => x.id === pid);
     if (!p) return;
     D.salvaPren({ ...p, assegnazioni: (p.assegnazioni || []).filter(a => a.tavolo !== tid) });
+    D.log("ha tolto " + p.nome + " dal tavolo " + tid);
     mostra(p.nome + " tolto da " + tid);
   };
 
@@ -453,7 +514,10 @@ function App() {
     drag.current.pos = { x, y };
     D.salvaPiantina(D.tavoli.map(t => (t.id === drag.current.id ? { ...t, x, y } : t)));
   };
-  const dragEnd = () => { setTimeout(() => { drag.current = null; }, 50); };
+  const dragEnd = () => {
+    if (drag.current && drag.current.mosso) D.log("ha spostato il tavolo " + drag.current.id + " sulla piantina");
+    setTimeout(() => { drag.current = null; }, 50);
+  };
 
   /* --- Prenotazioni: filtro --- */
   const lista = useMemo(() => {
@@ -470,9 +534,14 @@ function App() {
     const n = D.prenotazioni.filter(p => p.walkIn).length + 1;
     const id = D.salvaPren({ nome: "Walk-in " + n, pax: 2, turno, stato: "arrivata", walkIn: true, assegnazioni: [], creata: Date.now() });
     setSel(id || null); setVista("piantina");
+    D.log("ha registrato Walk-in " + n + " — turno " + turno);
     mostra("Walk-in creato: scegli il tavolo");
   };
-  const toggleArrivo = (p) => D.salvaPren({ ...p, stato: p.stato === "arrivata" ? "attesa" : "arrivata" });
+  const toggleArrivo = (p) => {
+    const nuovo = p.stato === "arrivata" ? "attesa" : "arrivata";
+    D.salvaPren({ ...p, stato: nuovo });
+    D.log((nuovo === "arrivata" ? "ha segnato arrivata " : "ha annullato l'arrivo di ") + p.nome);
+  };
 
   const esportaCsv = () => {
     const righe = [["Nome", "Persone", "Turno", "Tavoli", "Telefono", "Stato", "Note"]];
@@ -488,6 +557,8 @@ function App() {
   };
 
   if (!D.pronto) return <div style={{ padding: 40 }} className="hint">Carico…</div>;
+  if (!utente) return <Login utenti={D.utenti} onEntra={entra} />;
+  const vistaOk = (vista === "impostazioni" && !isAdmin) ? "piantina" : vista;
 
   return (
     <div className="app">
@@ -513,20 +584,27 @@ function App() {
         </div>
         <div className="top-row" style={{ marginTop: 8 }}>
           <div className="tabs">
-            {[["piantina", "Piantina"], ["registro", "Registro"], ["servizio", "Servizio & cucina"], ["impostazioni", "Impostazioni"]].map(([k, l]) => (
-              <button key={k} className={"tab" + (vista === k ? " on" : "")} onClick={() => setVista(k)}>{l}</button>
-            ))}
+            {[["piantina", "Piantina"], ["registro", "Registro"], ["servizio", "Servizio & cucina"]]
+              .concat(isAdmin ? [["impostazioni", "Impostazioni"]] : [])
+              .map(([k, l]) => (
+                <button key={k} className={"tab" + (vistaOk === k ? " on" : "")} onClick={() => setVista(k)}>{l}</button>
+              ))}
           </div>
           <div className="spacer" />
           <div className="cloud">
             <span className={"dot " + (D.cloud ? "live" : "local")} />
             {D.cloud ? "sincronizzato" : "solo su questo dispositivo"}
           </div>
+          <div className="utente-chip">
+            <b>{utente.nome}</b>
+            {isAdmin && <span className="ruolo">admin</span>}
+            <button className="btn ghost sm" onClick={esci}>Esci</button>
+          </div>
         </div>
       </header>
 
       {/* ---------- PIANTINA ---------- */}
-      {vista === "piantina" && (
+      {vistaOk === "piantina" && (
         <div className="split">
           <div className="panel no-print">
             <h2>Prenotazioni {turno}</h2>
@@ -559,11 +637,12 @@ function App() {
                       {p.telefono && <span>{p.telefono}</span>}
                     </div>
                     {p.note && <div className="hint" style={{ marginTop: 4 }}>{p.note}</div>}
+                    {p.modificatoDa && <div className="firma" style={{ marginTop: 4 }}>ultima modifica: {p.modificatoDa} · {quando(p.modificatoIl)}</div>}
                     {sel === p.id && (
                       <div className="pren-actions" onClick={e => e.stopPropagation()}>
                         <button className="btn ghost sm" onClick={() => toggleArrivo(p)}>{p.stato === "arrivata" ? "Non arrivata" : "Segna arrivata"}</button>
                         <button className="btn ghost sm" onClick={() => setModale({ tipo: "pren", dati: p })}>Modifica</button>
-                        {postiAssegnati(p) > 0 && <button className="btn ghost sm" onClick={() => { D.salvaPren({ ...p, assegnazioni: [] }); mostra("Tavoli liberati"); }}>Libera</button>}
+                        {postiAssegnati(p) > 0 && <button className="btn ghost sm" onClick={() => { D.salvaPren({ ...p, assegnazioni: [] }); D.log("ha liberato i tavoli di " + p.nome); mostra("Tavoli liberati"); }}>Libera</button>}
                       </div>
                     )}
                   </div>
@@ -574,9 +653,11 @@ function App() {
 
           <div>
             <div className="plan-bar no-print">
-              <button className={"btn sm " + (modifica ? "" : "ghost")} onClick={() => setModifica(!modifica)}>
-                {modifica ? "Fine spostamento" : "Sposta tavoli"}
-              </button>
+              {isAdmin && (
+                <button className={"btn sm " + (modifica ? "" : "ghost")} onClick={() => setModifica(!modifica)}>
+                  {modifica ? "Fine spostamento" : "Sposta tavoli"}
+                </button>
+              )}
               <button className="btn ghost sm" onClick={() => setZoom(z => Math.max(0.4, +(z - 0.1).toFixed(2)))}>−</button>
               <span className="num" style={{ minWidth: 42, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
               <button className="btn ghost sm" onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))}>+</button>
@@ -591,7 +672,7 @@ function App() {
                 {D.tavoli.map(t => (
                   <Tavolo key={t.id} t={t} occ={occ[t.id] || { posti: 0, ospiti: [] }}
                     selezionato={false} target={!!sel && (occ[t.id] ? occ[t.id].posti : 0) < t.posti}
-                    turnoIdx={turnoIdx} modifica={modifica} onClick={clickTavolo} onDragStart={dragStart} />
+                    turnoIdx={turnoIdx} modifica={modifica && isAdmin} onClick={clickTavolo} onDragStart={dragStart} />
                 ))}
               </div>
             </div>
@@ -608,7 +689,7 @@ function App() {
       )}
 
       {/* ---------- REGISTRO ---------- */}
-      {vista === "registro" && (
+      {vistaOk === "registro" && (
         <div className="panel" style={{ marginTop: 16 }}>
           <div className="plan-bar">
             <h2 style={{ margin: 0 }}>Registro prenotazioni</h2>
@@ -619,7 +700,7 @@ function App() {
             <button className="btn ghost sm" onClick={() => window.print()}>Stampa</button>
           </div>
           <table>
-            <thead><tr><th>Nome</th><th>Pers.</th><th>Turno</th><th>Tavoli</th><th>Telefono</th><th>Stato</th><th>Note</th><th></th></tr></thead>
+            <thead><tr><th>Nome</th><th>Pers.</th><th>Turno</th><th>Tavoli</th><th>Telefono</th><th>Stato</th><th>Note</th><th>Ultima modifica</th><th></th></tr></thead>
             <tbody>
               {D.prenotazioni.slice().sort((a, b) => (a.turno || "").localeCompare(b.turno || "") || (a.nome || "").localeCompare(b.nome || "")).map(p => (
                 <tr key={p.id}>
@@ -630,19 +711,20 @@ function App() {
                   <td>{p.telefono || "—"}</td>
                   <td>{p.stato || "attesa"}</td>
                   <td className="hint">{p.note || ""}</td>
+                  <td className="firma">{p.modificatoDa ? p.modificatoDa + " · " + quando(p.modificatoIl) : "—"}</td>
                   <td className="no-print" style={{ whiteSpace: "nowrap" }}>
                     <button className="btn ghost sm" onClick={() => setModale({ tipo: "pren", dati: p })}>Modifica</button>
                   </td>
                 </tr>
               ))}
-              {D.prenotazioni.length === 0 && <tr><td colSpan="8" className="hint">Il registro è vuoto. Aggiungi la prima prenotazione.</td></tr>}
+              {D.prenotazioni.length === 0 && <tr><td colSpan="9" className="hint">Il registro è vuoto. Aggiungi la prima prenotazione.</td></tr>}
             </tbody>
           </table>
         </div>
       )}
 
       {/* ---------- SERVIZIO ---------- */}
-      {vista === "servizio" && (
+      {vistaOk === "servizio" && (
         <div className="panel" style={{ marginTop: 16 }}>
           <div className="plan-bar">
             <h2 style={{ margin: 0 }}>Servizio — turno {turno}</h2>
@@ -669,7 +751,7 @@ function App() {
       )}
 
       {/* ---------- IMPOSTAZIONI ---------- */}
-      {vista === "impostazioni" && (
+      {vistaOk === "impostazioni" && (
         <div className="split" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <div className="panel">
             <h2>Piantina</h2>
@@ -709,25 +791,52 @@ function App() {
               il numero tavolo e i coperti seduti diventano l'aggancio per aprire il conto.
             </p>
           </div>
+
+          <div className="panel">
+            <h2>Utenti</h2>
+            <p className="hint">Ogni persona entra con il proprio nome: la password è il nome stesso, tutto minuscolo. L'admin entra con <b>admin</b> e la password che hai scelto.</p>
+            <Utenti utenti={D.utenti} onSalva={(lista, azione) => { D.salvaUtenti(lista); D.log(azione); mostra("Utenti aggiornati"); }} />
+          </div>
+
+          <div className="panel">
+            <h2>Registro attività</h2>
+            <p className="hint">Chi ha fatto cosa, dal più recente. {D.cloud ? "Ultime 150 azioni sincronizzate." : "Ultime 200 azioni su questo dispositivo."}</p>
+            <div className="log-lista" style={{ marginTop: 10 }}>
+              {D.attivita.length === 0 && <p className="hint">Ancora nessuna azione registrata.</p>}
+              {D.attivita.map((a, i) => (
+                <div key={i} className="log-riga">
+                  <time>{quando(a.ts)}</time><b>{a.utente}</b><span>{a.azione}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
       {/* ---------- Modali ---------- */}
       {modale && modale.tipo === "pren" && (
         <ModalePren dati={modale.dati} onChiudi={() => setModale(null)}
-          onSalva={(p) => { D.salvaPren(p); setModale(null); mostra("Prenotazione salvata"); }}
-          onElimina={(id) => { D.eliminaPren(id); setModale(null); mostra("Prenotazione eliminata"); }} />
+          onSalva={(p) => {
+            D.salvaPren(p);
+            D.log((p.id ? "ha modificato la prenotazione " : "ha inserito la prenotazione ") + p.nome + " (" + p.pax + " pers., " + p.turno + ")");
+            setModale(null); mostra("Prenotazione salvata");
+          }}
+          onElimina={(id) => {
+            const p = D.prenotazioni.find(x => x.id === id);
+            D.eliminaPren(id); D.log("ha eliminato la prenotazione " + (p ? p.nome : id));
+            setModale(null); mostra("Prenotazione eliminata");
+          }} />
       )}
       {modale && modale.tipo === "tavolo" && (
-        <ModaleTavolo t={modale.t} occ={occ[modale.t.id] || { posti: 0, ospiti: [] }}
+        <ModaleTavolo t={modale.t} occ={occ[modale.t.id] || { posti: 0, ospiti: [] }} isAdmin={isAdmin}
           onChiudi={() => setModale(null)}
           onLibera={(pid) => liberaTavolo(modale.t.id, pid)}
-          onSalva={(t) => { D.salvaPiantina(D.tavoli.map(x => (x.id === t.id ? t : x))); setModale(null); }}
-          onElimina={(id) => { D.salvaPiantina(D.tavoli.filter(x => x.id !== id)); setModale(null); mostra("Tavolo rimosso"); }} />
+          onSalva={(t) => { D.salvaPiantina(D.tavoli.map(x => (x.id === t.id ? t : x))); D.log("ha modificato il tavolo " + t.nome); setModale(null); }}
+          onElimina={(id) => { D.salvaPiantina(D.tavoli.filter(x => x.id !== id)); D.log("ha rimosso il tavolo " + modale.t.nome); setModale(null); mostra("Tavolo rimosso"); }} />
       )}
       {modale && modale.tipo === "incolla" && (
         <ModaleIncolla turno={turno} onChiudi={() => setModale(null)}
-          onImporta={(righe) => { righe.forEach(r => D.salvaPren(r)); setModale(null); mostra(righe.length + " prenotazioni importate"); }} />
+          onImporta={(righe) => { righe.forEach(r => D.salvaPren(r)); D.log("ha importato " + righe.length + " prenotazioni"); setModale(null); mostra(righe.length + " prenotazioni importate"); }} />
       )}
 
       {toast && <div className="toast">{toast}</div>}
@@ -775,7 +884,7 @@ function ModalePren({ dati, onSalva, onElimina, onChiudi }) {
 }
 
 /* ---------- Modale tavolo ---------- */
-function ModaleTavolo({ t, occ, onSalva, onElimina, onLibera, onChiudi }) {
+function ModaleTavolo({ t, occ, isAdmin, onSalva, onElimina, onLibera, onChiudi }) {
   const [f, setF] = useState({ ...t });
   return (
     <div className="overlay" onClick={onChiudi}>
@@ -792,20 +901,24 @@ function ModaleTavolo({ t, occ, onSalva, onElimina, onLibera, onChiudi }) {
             ))}
           </div>
         )}
-        <div className="row">
-          <div className="field"><label>Nome tavolo</label><input value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} /></div>
-          <div className="field"><label>Posti</label><input type="number" min="2" max="14" value={f.posti} onChange={e => setF({ ...f, posti: parseInt(e.target.value) || 8 })} /></div>
-        </div>
-        <div className="field"><label>Orientamento</label>
-          <select value={f.orient} onChange={e => setF({ ...f, orient: e.target.value })}>
-            <option value="h">Orizzontale</option><option value="v">Verticale</option>
-          </select></div>
+        {isAdmin && (
+          <div>
+            <div className="row">
+              <div className="field"><label>Nome tavolo</label><input value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} /></div>
+              <div className="field"><label>Posti</label><input type="number" min="2" max="14" value={f.posti} onChange={e => setF({ ...f, posti: parseInt(e.target.value) || 8 })} /></div>
+            </div>
+            <div className="field"><label>Orientamento</label>
+              <select value={f.orient} onChange={e => setF({ ...f, orient: e.target.value })}>
+                <option value="h">Orizzontale</option><option value="v">Verticale</option>
+              </select></div>
+          </div>
+        )}
         <div className="row" style={{ marginTop: 12 }}>
-          <button className="btn" onClick={() => onSalva(f)}>Salva</button>
+          {isAdmin && <button className="btn" onClick={() => onSalva(f)}>Salva</button>}
           <button className="btn ghost" onClick={onChiudi}>Chiudi</button>
         </div>
-        <button className="btn danger block sm" style={{ marginTop: 8 }}
-          onClick={() => { if (confirm("Rimuovere il tavolo " + t.nome + "?")) onElimina(t.id); }}>Rimuovi tavolo</button>
+        {isAdmin && <button className="btn danger block sm" style={{ marginTop: 8 }}
+          onClick={() => { if (confirm("Rimuovere il tavolo " + t.nome + "?")) onElimina(t.id); }}>Rimuovi tavolo</button>}
       </div>
     </div>
   );
@@ -853,6 +966,91 @@ function Genera({ onGenera }) {
       </div>
       <p className="hint">Capienza risultante: <b className="num">{n * p}</b> posti per turno.</p>
       <button className="btn ghost sm" onClick={() => { if (confirm("Rigenerare la piantina?")) onGenera(n, c, p); }}>Rigenera piantina</button>
+    </div>
+  );
+}
+
+/* ---------- Accesso ---------- */
+function Login({ utenti, onEntra }) {
+  const [nome, setNome] = useState("");
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+
+  const prova = () => {
+    const n = norm(nome);
+    if (!n) return setErr("Scrivi il tuo nome utente.");
+    if (n === ADMIN_USER) {
+      if (pw !== ADMIN_PASS) return setErr("Password non corretta.");
+      return onEntra({ nome: "admin", ruolo: "admin" });
+    }
+    const u = utenti.find(x => norm(x.nome) === n);
+    if (!u) return setErr("Utente non riconosciuto. Fattelo creare dall'admin.");
+    if (norm(pw) !== norm(u.nome)) return setErr("La password è il tuo nome utente.");
+    onEntra({ nome: u.nome, ruolo: u.ruolo || "staff" });
+  };
+
+  return (
+    <div className="login">
+      <div className="login-card">
+        <h1 className="brand">Festival <span>Fabbrico</span><small>Sala e prenotazioni</small></h1>
+        <div className="field"><label>Nome utente</label>
+          <input autoFocus value={nome} onChange={e => { setNome(e.target.value); setErr(""); }}
+            onKeyDown={e => e.key === "Enter" && prova()} placeholder="es. gianluca" /></div>
+        <div className="field"><label>Password</label>
+          <input type="password" value={pw} onChange={e => { setPw(e.target.value); setErr(""); }}
+            onKeyDown={e => e.key === "Enter" && prova()} /></div>
+        <button className="btn block" style={{ marginTop: 8 }} onClick={prova}>Entra</button>
+        {err && <p className="login-err">{err}</p>}
+        <p className="hint" style={{ marginTop: 14 }}>La password è uguale al nome utente. Ogni modifica che fai resta firmata con il tuo nome.</p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Gestione utenti (solo admin) ---------- */
+function Utenti({ utenti, onSalva }) {
+  const [nuovo, setNuovo] = useState("");
+  const [ruolo, setRuolo] = useState("staff");
+
+  const aggiungi = () => {
+    const n = nuovo.trim();
+    if (!n) return;
+    if (utenti.some(u => norm(u.nome) === norm(n)) || norm(n) === ADMIN_USER) return alert("Questo utente esiste già.");
+    onSalva([...utenti, { nome: n, ruolo }], "ha creato l'utente " + n + " (" + ruolo + ")");
+    setNuovo("");
+  };
+
+  return (
+    <div>
+      <table>
+        <thead><tr><th>Utente</th><th>Password</th><th>Ruolo</th><th></th></tr></thead>
+        <tbody>
+          {utenti.map(u => (
+            <tr key={u.nome}>
+              <td><b>{u.nome}</b></td>
+              <td className="num">{norm(u.nome) === ADMIN_USER ? "••••" : norm(u.nome)}</td>
+              <td>{u.ruolo === "admin" ? <span className="ruolo">admin</span> : "staff"}</td>
+              <td>
+                {norm(u.nome) !== ADMIN_USER && (
+                  <button className="btn ghost sm" onClick={() => {
+                    if (confirm("Rimuovere l'utente " + u.nome + "?"))
+                      onSalva(utenti.filter(x => norm(x.nome) !== norm(u.nome)), "ha rimosso l'utente " + u.nome);
+                  }}>Rimuovi</button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="row" style={{ marginTop: 12, alignItems: "flex-end" }}>
+        <div className="field"><label>Nuovo utente</label>
+          <input value={nuovo} onChange={e => setNuovo(e.target.value)} onKeyDown={e => e.key === "Enter" && aggiungi()} placeholder="es. gianluca" /></div>
+        <div className="field" style={{ maxWidth: 120 }}><label>Ruolo</label>
+          <select value={ruolo} onChange={e => setRuolo(e.target.value)}>
+            <option value="staff">Staff</option><option value="admin">Admin</option>
+          </select></div>
+        <button className="btn sm" onClick={aggiungi}>Aggiungi</button>
+      </div>
     </div>
   );
 }
