@@ -212,7 +212,7 @@
   .mappa-bg{position:absolute;inset:0;background-size:contain;background-position:center;background-repeat:no-repeat}
   .forma{position:absolute;display:flex;align-items:center;justify-content:center;text-align:center;cursor:grab;touch-action:none;user-select:none}
   .forma.sel{outline:2px solid #fff;outline-offset:3px}
-  .forma .txt{font-weight:800;letter-spacing:.02em;line-height:1.15;padding:0 8px;word-break:break-word}
+  .forma .txt{white-space:pre-line;font-weight:800;letter-spacing:.02em;line-height:1.15;padding:0 8px;word-break:break-word}
   .forma.zona{align-items:flex-start;justify-content:flex-start}
   .forma.zona .txt{font-weight:700;padding:6px 10px}
   .maniglia{position:absolute;right:-9px;bottom:-9px;width:20px;height:20px;border-radius:50%;background:#fff;border:2px solid var(--ink);cursor:nwse-resize;touch-action:none}
@@ -343,7 +343,25 @@ const quando = (ts) => ts ? new Date(ts).toLocaleString("it-IT", { day: "2-digit
    3) MAPPA DELL'AREA
    ========================================================= */
 const MAPPA_W = 1600;
-const MAPPA_RATIO_DEF = 1600 / 1100;
+const MAPPA_RATIO_DEF = 1600 / 1210;
+const SFONDO_DEFAULT = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNjAwIiBoZWlnaHQ9IjEyMTAiIHZpZXdCb3g9IjAgMCAxNjAwIDEyMTAiPgogIDxkZWZzPgogICAgPHN0eWxlPgogICAgICAuc3RyYWRhe2ZpbGw6I0U3RTNEQX0KICAgICAgLnZpYXtmaWxsOiNFRkVDRTV9CiAgICAgIC5waWF6emF7ZmlsbDojRjZGMkU4O3N0cm9rZTojQzNCQUE2O3N0cm9rZS13aWR0aDozfQogICAgICAuZWRpZmljaW97ZmlsbDojREVENkM2O3N0cm9rZTojQUZBNDkyO3N0cm9rZS13aWR0aDozfQogICAgICAudmVyZGV7ZmlsbDojRENFNEQzO3N0cm9rZTojQzRDRkI3O3N0cm9rZS13aWR0aDoyfQogICAgICAuZGV0dGFnbGlve2ZpbGw6bm9uZTtzdHJva2U6I0MzQkFBNjtzdHJva2Utd2lkdGg6Mi41fQogICAgICAudHJhdHRlZ2dpb3tmaWxsOm5vbmU7c3Ryb2tlOiNCREIzQTA7c3Ryb2tlLXdpZHRoOjM7c3Ryb2tlLWRhc2hhcnJheToxNCAxMH0KICAgICAgLmV0aWNoZXR0YXtmb250LWZhbWlseTpzYW5zLXNlcmlmO2ZvbnQtc2l6ZToyNnB4O2ZpbGw6IzlBOTA3OTtsZXR0ZXItc3BhY2luZzozcHh9CiAgICAgIC5ldGljaGV0dGluYXtmb250LWZhbWlseTpzYW5zLXNlcmlmO2ZvbnQtc2l6ZToyMHB4O2ZpbGw6I0E3OUQ4NjtsZXR0ZXItc3BhY2luZzoycHh9CiAgICA8L3N0eWxlPgogIDwvZGVmcz4KCiAgPHJlY3Qgd2lkdGg9IjE2MDAiIGhlaWdodD0iMTIxMCIgZmlsbD0iI0VERTlFMCIvPgoKICA8IS0tIHN0cmFkZSAtLT4KICA8cmVjdCBjbGFzcz0idmlhIiB4PSI4MzAiIHk9IjM4MCIgd2lkdGg9IjQzMCIgaGVpZ2h0PSI4MzAiLz4KICA8cmVjdCBjbGFzcz0idmlhIiB4PSI2NDAiIHk9IjIzMCIgd2lkdGg9IjYyMCIgaGVpZ2h0PSIxNzAiLz4KICA8cmVjdCBjbGFzcz0idmlhIiB4PSIwIiB5PSIwIiB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMTAiLz4KICA8cmVjdCBjbGFzcz0ic3RyYWRhIiB4PSIyNDAiIHk9IjExNTAiIHdpZHRoPSI3MDAiIGhlaWdodD0iNjAiLz4KCiAgPCEtLSBwaWF6emEgLS0+CiAgPHBvbHlnb24gY2xhc3M9InBpYXp6YSIgcG9pbnRzPSIyNTAsNDAwIDY0NSw0MDAgODE1LDU3MCA4MTUsMTE1NSA3MDAsMTIxMCAyNDUsMTIxMCAxNzIsMTEyMCAxNzIsNTA1Ii8+CiAgPHBhdGggY2xhc3M9ImRldHRhZ2xpbyIgZD0iTTI1MCA0MzAgSDY0NSIvPgogIDxwYXRoIGNsYXNzPSJ0cmF0dGVnZ2lvIiBkPSJNODE1IDY0MCBMOTAwIDc2MCBMOTAwIDExNTAiLz4KCiAgPCEtLSBlZGlmaWNpIC0tPgogIDxwb2x5Z29uIGNsYXNzPSJlZGlmaWNpbyIgcG9pbnRzPSIyNTIsMCA3MDAsMCA3MDAsMTkwIDY0NSwxOTAgNjQ1LDM5NSAyNTIsMzk1Ii8+CiAgPHJlY3QgY2xhc3M9ImVkaWZpY2lvIiB4PSIxNTAiIHk9IjUwNSIgd2lkdGg9Ijg4IiBoZWlnaHQ9IjY0NSIvPgogIDxyZWN0IGNsYXNzPSJlZGlmaWNpbyIgeD0iMTI4OCIgeT0iMCIgd2lkdGg9IjEzMiIgaGVpZ2h0PSIzOTUiLz4KICA8cmVjdCBjbGFzcz0iZWRpZmljaW8iIHg9IjE0MjAiIHk9IjIwIiB3aWR0aD0iMTgwIiBoZWlnaHQ9IjM3NSIvPgogIDxyZWN0IGNsYXNzPSJlZGlmaWNpbyIgeD0iODIwIiB5PSI1OTgiIHdpZHRoPSIxMTIiIGhlaWdodD0iNDYiLz4KCiAgPCEtLSBhbGJlcmkgLS0+CiAgPGcgY2xhc3M9InZlcmRlIj4KICAgIDxjaXJjbGUgY3g9Ijk2MCIgY3k9IjE0MCIgcj0iOTIiLz48Y2lyY2xlIGN4PSI4ODgiIGN5PSIzMDAiIHI9Ijc3Ii8+PGNpcmNsZSBjeD0iMTAzNSIgY3k9IjI5OCIgcj0iNTciLz4KICAgIDxjaXJjbGUgY3g9IjU4IiBjeT0iMTIwIiByPSI3NyIvPjxjaXJjbGUgY3g9IjUyIiBjeT0iNDMwIiByPSI4MSIvPjxjaXJjbGUgY3g9IjQwIiBjeT0iNjQwIiByPSI4NyIvPgogICAgPGNpcmNsZSBjeD0iNTgiIGN5PSI4NzAiIHI9Ijg1Ii8+PGNpcmNsZSBjeD0iNDgiIGN5PSIxMDkwIiByPSI3NyIvPgogICAgPGNpcmNsZSBjeD0iMTQwMCIgY3k9IjUyMCIgcj0iMTAzIi8+PGNpcmNsZSBjeD0iMTU2MCIgY3k9IjQ3MCIgcj0iNzciLz48Y2lyY2xlIGN4PSIxMzMwIiBjeT0iNzcwIiByPSI5NCIvPgogICAgPGNpcmNsZSBjeD0iMTQ4NSIgY3k9Ijg4NSIgcj0iOTQiLz48Y2lyY2xlIGN4PSIxNDIwIiBjeT0iMTA4NSIgcj0iMTAyIi8+PGNpcmNsZSBjeD0iMTU3NSIgY3k9IjExNTAiIHI9Ijc0Ii8+CiAgICA8Y2lyY2xlIGN4PSIzMDAiIGN5PSI3NzUiIHI9IjQyIi8+PGNpcmNsZSBjeD0iMzMyIiBjeT0iODg1IiByPSI0NSIvPjxjaXJjbGUgY3g9IjI5NiIgY3k9IjEwMDAiIHI9IjQxIi8+CiAgICA8Y2lyY2xlIGN4PSI1NjAiIGN5PSI4NDUiIHI9IjQyIi8+PGNpcmNsZSBjeD0iNjAyIiBjeT0iOTUyIiByPSIzOCIvPjxjaXJjbGUgY3g9IjY1OCIgY3k9IjEwNTgiIHI9IjM0Ii8+CiAgPC9nPgoKICA8IS0tIG1vbnVtZW50byBhaSBjYWR1dGkgLS0+CiAgPHJlY3QgY2xhc3M9ImVkaWZpY2lvIiB4PSI0NDgiIHk9IjQ4MiIgd2lkdGg9IjExOCIgaGVpZ2h0PSI4OCIvPgogIDxjaXJjbGUgY3g9IjUwNyIgY3k9IjUyNiIgcj0iMTUiIGZpbGw9IiNDM0JBQTYiLz4KCiAgPCEtLSBwb3N0aSBhdXRvIC0tPgogIDxnIGNsYXNzPSJkZXR0YWdsaW8iPgogICAgPHBhdGggZD0iTTI0MiA2NjAgSDMwMCBNMjQyIDc0NSBIMzAwIE0yNDIgODMwIEgzMDAgTTI0MiA5MTUgSDMwMCBNMjQyIDEwMDAgSDMwMCIvPgogIDwvZz4KCiAgPCEtLSBsaW5lYSBkaSBtZXp6ZXJpYSBkZWxsYSBzdHJhZGEgLS0+CiAgPHBhdGggZD0iTTEwNDUgNDAwIFYxMjAwIiBmaWxsPSJub25lIiBzdHJva2U9IiNEQ0Q3Q0MiIHN0cm9rZS13aWR0aD0iNSIgc3Ryb2tlLWRhc2hhcnJheT0iMjYgMjIiLz4KCiAgPCEtLSBub21pIC0tPgogIDx0ZXh0IGNsYXNzPSJldGljaGV0dGEiIHg9IjMzMCIgeT0iNjQwIj5QSUFaWkEgVklUVE9SSU8gVkVORVRPPC90ZXh0PgogIDx0ZXh0IGNsYXNzPSJldGljaGV0dGluYSIgeD0iMTMwMCIgeT0iMTE5NSI+VklBIElTT05aTzwvdGV4dD4KICA8dGV4dCBjbGFzcz0iZXRpY2hldHRpbmEiIHg9IjcwMCIgeT0iMzMwIj5WSUEgUk9NQTwvdGV4dD4KCiAgPCEtLSBidXNzb2xhIC0tPgogIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE1MjAsNjApIj4KICAgIDxjaXJjbGUgcj0iMzAiIGZpbGw9IiNGNkYyRTgiIHN0cm9rZT0iI0MzQkFBNiIgc3Ryb2tlLXdpZHRoPSIyLjUiLz4KICAgIDxwYXRoIGQ9Ik0wIC0yMCBMOCA2IEwwIDAgTC04IDYgWiIgZmlsbD0iI0E3OUQ4NiIvPgogICAgPHRleHQgeD0iMCIgeT0iLTMyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBjbGFzcz0iZXRpY2hldHRpbmEiIGZvbnQtc2l6ZT0iMTgiPk48L3RleHQ+CiAgPC9nPgo8L3N2Zz4K";
+/* Etichette pronte, posizionate sulla piazza: si inseriscono col pulsante "Etichette tipo" */
+const FORME_BASE = [
+  { tipo: "etichetta", testo: "WC", x: 710, y: 18, w: 180, h: 77, rot: 0, colore: "nero", font: 30 },
+  { tipo: "etichetta", testo: "TAVOLI", x: 645, y: 265, w: 200, h: 67, rot: 0, colore: "marrone", font: 30 },
+  { tipo: "etichetta", testo: "CUCINA", x: 1140, y: 270, w: 170, h: 65, rot: 0, colore: "rosso", font: 30 },
+  { tipo: "etichetta", testo: "RITIRO\nPANINI", x: 884, y: 424, w: 166, h: 101, rot: 0, colore: "rosso", font: 26 },
+  { tipo: "etichetta", testo: "CICCIO", x: 1153, y: 508, w: 155, h: 58, rot: 90, colore: "rosso", font: 26 },
+  { tipo: "etichetta", testo: "DJS", x: 592, y: 582, w: 170, h: 98, rot: 0, colore: "blu", font: 32 },
+  { tipo: "etichetta", testo: "BAR\nCOCKTAIL", x: 407, y: 621, w: 159, h: 110, rot: 0, colore: "arancio", font: 26 },
+  { tipo: "etichetta", testo: "TAVOLI", x: 999, y: 709, w: 228, h: 70, rot: 0, colore: "marrone", font: 30 },
+  { tipo: "etichetta", testo: "CASSA 3", x: 793, y: 827, w: 150, h: 64, rot: 90, colore: "verde", font: 26 },
+  { tipo: "etichetta", testo: "BAR SPINE", x: 817, y: 995, w: 140, h: 62, rot: 90, colore: "arancio", font: 24 },
+  { tipo: "etichetta", testo: "AL VARCO", x: 1152, y: 954, w: 155, h: 58, rot: 90, colore: "rosso", font: 26 },
+  { tipo: "etichetta", testo: "CASSA\n1", x: 299, y: 1075, w: 165, h: 95, rot: 0, colore: "verde", font: 26 },
+  { tipo: "etichetta", testo: "CASSA\n2", x: 624, y: 1075, w: 161, h: 95, rot: 0, colore: "verde", font: 26 },
+  { tipo: "etichetta", testo: "TAVOLI", x: 910, y: 1120, w: 203, h: 63, rot: 0, colore: "marrone", font: 28 }
+];
 const COLORI = [
   { id: "verde", bg: "#21A05B", testo: "#FFFFFF" },
   { id: "rosso", bg: "#E0524F", testo: "#FFFFFF" },
@@ -1036,7 +1054,8 @@ function App() {
 function raggio(f) { return f.tipo === "cerchio" ? Math.min(f.w, f.h) / 2 : (f.tipo === "zona" ? 10 : Math.min(f.h / 2, 20)); }
 
 function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mobile }) {
-  const H = Math.round(MAPPA_W / (mappa.ratio || MAPPA_RATIO_DEF));
+  const sfondoAttivo = sfondo || SFONDO_DEFAULT;
+  const H = Math.round(MAPPA_W / (sfondo ? (mappa.ratio || MAPPA_RATIO_DEF) : MAPPA_RATIO_DEF));
   const [F, setF] = useState(mappa.forme || []);
   const [sel, setSel] = useState(null);
   const [zoom, setZoom] = useState(() => (window.innerWidth <= 760 ? 0.24 : 0.55));
@@ -1196,7 +1215,7 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
     const ctx = c.getContext("2d");
     ctx.scale(S, S);
     ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, MAPPA_W, H);
-    if (sfondo) {
+    if (sfondoAttivo) {
       await new Promise(res => {
         const img = new Image();
         img.onload = () => {
@@ -1206,7 +1225,7 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
           res();
         };
         img.onerror = res;
-        img.src = sfondo;
+        img.src = sfondoAttivo;
       });
     }
     if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
@@ -1246,6 +1265,12 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
             <button className="btn ghost sm" onClick={() => aggiungi("cerchio")}>+ Cerchio</button>
             <button className="btn ghost sm" onClick={() => aggiungi("zona")}>+ Zona</button>
             <button className="btn ghost sm" onClick={() => aggiungi("freccia")}>+ Freccia</button>
+            <button className="btn ghost sm" onClick={() => {
+              const nuove = FORME_BASE.map(f => ({ ...f, id: uid() }));
+              commit([...F, ...nuove]);
+              log("ha inserito le etichette tipo sulla mappa");
+              mostra("Etichette inserite: spostale dove servono");
+            }}>Etichette tipo</button>
           </div>
         )}
         <button className="btn ghost sm" onClick={() => setZoom(z => Math.max(0.1, +(z - 0.05).toFixed(3)))}>−</button>
@@ -1263,7 +1288,7 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
           style={{ width: MAPPA_W, height: H, transform: "scale(" + zoom + ")" }}
           onPointerMove={muovi} onPointerUp={su} onPointerCancel={su}
           onClick={() => { if (!drag.current) setSel(null); }}>
-          {sfondo && <div className="mappa-bg" style={{ backgroundImage: "url(" + sfondo + ")" }} />}
+          <div className="mappa-bg" style={{ backgroundImage: "url(" + sfondoAttivo + ")" }} />
           {F.map(f => {
             const col = colore(f.colore);
             const zona = f.tipo === "zona";
@@ -1296,7 +1321,6 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
           })}
         </div>
         </div>
-        {!sfondo && <p className="hint" style={{ position: "absolute", top: 16, left: 16 }}>Nessuna cartina caricata: usa il riquadro qui sotto.</p>}
       </div>
 
       {isAdmin && (
@@ -1341,13 +1365,13 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
 
           <div className="panel no-print">
             <h2>Cartina di sfondo</h2>
-            <p className="hint">Carica la foto satellitare della piazza. Viene ridotta e salvata nel database, così la vedono tutti i dispositivi.</p>
+            <p className="hint">L'app parte con la mappa stilizzata della piazza: contorni di edifici, alberi, strade e monumento, senza foto. Puoi sostituirla con una tua immagine — viene ridotta e salvata nel database, così la vedono tutti i dispositivi.</p>
             <input type="file" accept="image/*" style={{ marginTop: 10 }}
               onChange={e => { caricaSfondo(e.target.files && e.target.files[0]); e.target.value = ""; }} />
             {sfondo && (
               <button className="btn ghost sm" style={{ marginTop: 10 }}
-                onClick={() => { if (confirm("Rimuovere la cartina di sfondo?")) { onSfondo(""); log("ha rimosso la cartina dell'area"); } }}>
-                Rimuovi cartina
+                onClick={() => { if (confirm("Tornare alla mappa stilizzata della piazza?")) { onSfondo(""); log("ha ripristinato la cartina predefinita"); } }}>
+                Torna alla mappa stilizzata
               </button>
             )}
             <p className="hint" style={{ marginTop: 12 }}>
