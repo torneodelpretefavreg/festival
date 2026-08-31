@@ -135,7 +135,7 @@
     background:var(--ink);background-image:radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px);
     background-size:24px 24px;height:calc(100vh - 260px);min-height:420px;
   }
-  .plan{position:relative;transform-origin:0 0;width:1500px;height:1000px}
+  .plan{position:absolute;top:0;left:0;transform-origin:0 0;width:1500px;height:1000px}
   .plan-bg{position:absolute;inset:0;background-size:contain;background-repeat:no-repeat;opacity:.35;pointer-events:none}
 
   .tavolo{position:absolute;display:flex;flex-direction:column;user-select:none;touch-action:auto}
@@ -207,7 +207,8 @@
 
   /* ---------- Editor mappa area ---------- */
   .mappa-wrap{position:relative;overflow:auto;border:1px solid var(--line);border-radius:var(--r);background:#0E0D14;height:calc(100vh - 250px);min-height:400px}
-  .mappa{position:relative;transform-origin:0 0;background:#0E0D14}
+  .scaler{position:relative}
+  .mappa{position:absolute;top:0;left:0;transform-origin:0 0;background:#0E0D14}
   .mappa-bg{position:absolute;inset:0;background-size:contain;background-position:center;background-repeat:no-repeat}
   .forma{position:absolute;display:flex;align-items:center;justify-content:center;text-align:center;cursor:grab;touch-action:none;user-select:none}
   .forma.sel{outline:2px solid #fff;outline-offset:3px}
@@ -237,7 +238,7 @@
   @media(max-width:760px){
     body{font-size:15px}
     .app{padding:0 10px 90px}
-    .top{padding:10px 0 8px}
+    .top{position:static;padding:10px 0 8px}
     .top-row{gap:10px}
     .brand{font-size:18px}
     .brand small{display:none}
@@ -830,6 +831,7 @@ function App() {
             </div>
 
             <div className="plan-wrap" ref={wrapRef}>
+              <div className="scaler" style={{ width: Math.round(1500 * zoom), height: Math.round(1000 * zoom) }}>
               <div className="plan" ref={planRef} style={{ transform: "scale(" + zoom + ")" }}
                 onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd}>
                 {D.sfondo && <div className="plan-bg" style={{ backgroundImage: "url(" + D.sfondo + ")" }} />}
@@ -838,6 +840,7 @@ function App() {
                     selezionato={false} target={!!sel && (occ[t.id] ? occ[t.id].posti : 0) < t.posti}
                     turnoIdx={turnoIdx} modifica={modifica && isAdmin} onClick={clickTavolo} onDragStart={dragStart} />
                 ))}
+              </div>
               </div>
             </div>
 
@@ -1045,6 +1048,14 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
 
   useEffect(() => { if (!drag.current) setF(mappa.forme || []); }, [mappa]);
 
+  // Adatta la mappa alla larghezza disponibile all'apertura e quando cambia la cartina
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (wrapRef.current) setZoom(+((wrapRef.current.clientWidth - 20) / MAPPA_W).toFixed(3));
+    }, 60);
+    return () => clearTimeout(t);
+  }, [mappa.ratio, sfondo]);
+
   const selezionata = F.find(f => f.id === sel);
   const commit = (next) => { setF(next); onSalva(next); };
   const aggiorna = (id, patch, salva) => {
@@ -1247,6 +1258,7 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
       </div>
 
       <div className="mappa-wrap" ref={wrapRef}>
+        <div className="scaler" style={{ width: Math.round(MAPPA_W * zoom), height: Math.round(H * zoom) }}>
         <div className="mappa" ref={planRef}
           style={{ width: MAPPA_W, height: H, transform: "scale(" + zoom + ")" }}
           onPointerMove={muovi} onPointerUp={su} onPointerCancel={su}
@@ -1283,6 +1295,8 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
             );
           })}
         </div>
+        </div>
+        {!sfondo && <p className="hint" style={{ position: "absolute", top: 16, left: 16 }}>Nessuna cartina caricata: usa il riquadro qui sotto.</p>}
       </div>
 
       {isAdmin && (
