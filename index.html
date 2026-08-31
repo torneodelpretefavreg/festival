@@ -205,7 +205,25 @@
   .log-riga time{font-family:"IBM Plex Mono",monospace;color:var(--muted);white-space:nowrap}
   .log-riga b{color:var(--amber);font-weight:600;white-space:nowrap}
 
-  /* ---------- Telefono e tablet ---------- */
+  /* ---------- Editor mappa area ---------- */
+  .mappa-wrap{position:relative;overflow:auto;border:1px solid var(--line);border-radius:var(--r);background:#0E0D14;height:calc(100vh - 250px);min-height:400px}
+  .mappa{position:relative;transform-origin:0 0;background:#0E0D14}
+  .mappa-bg{position:absolute;inset:0;background-size:contain;background-position:center;background-repeat:no-repeat}
+  .forma{position:absolute;display:flex;align-items:center;justify-content:center;text-align:center;cursor:grab;touch-action:none;user-select:none}
+  .forma.sel{outline:2px solid #fff;outline-offset:3px}
+  .forma .txt{font-weight:800;letter-spacing:.02em;line-height:1.15;padding:0 8px;word-break:break-word}
+  .forma.zona{align-items:flex-start;justify-content:flex-start}
+  .forma.zona .txt{font-weight:700;padding:6px 10px}
+  .maniglia{position:absolute;right:-9px;bottom:-9px;width:20px;height:20px;border-radius:50%;background:#fff;border:2px solid var(--ink);cursor:nwse-resize;touch-action:none}
+  .tavolozza{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px}
+  .pastiglia{width:30px;height:30px;border-radius:8px;border:2px solid transparent}
+  .pastiglia.on{border-color:#fff}
+  .prop{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .prop label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);min-width:64px}
+  .prop input[type=range]{flex:1;padding:0}
+  @media(max-width:760px){
+    .mappa-wrap{height:56vh}
+  }
   .bottom-nav{display:none}
   .segment{display:none}
 
@@ -286,6 +304,7 @@
 <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -318,6 +337,30 @@ const UTENTI_DEFAULT = [{ nome: "admin", ruolo: "admin" }];
 const LS_UTENTE = "festivalfabbrico_utente";
 const norm = (s) => (s || "").trim().toLowerCase();
 const quando = (ts) => ts ? new Date(ts).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+
+/* =========================================================
+   3) MAPPA DELL'AREA
+   ========================================================= */
+const MAPPA_W = 1600;
+const MAPPA_RATIO_DEF = 1600 / 1100;
+const COLORI = [
+  { id: "verde", bg: "#21A05B", testo: "#FFFFFF" },
+  { id: "rosso", bg: "#E0524F", testo: "#FFFFFF" },
+  { id: "arancio", bg: "#F0894A", testo: "#FFFFFF" },
+  { id: "marrone", bg: "#7A4C2E", testo: "#FFFFFF" },
+  { id: "blu", bg: "#3E9BE0", testo: "#FFFFFF" },
+  { id: "viola", bg: "#8E6BD8", testo: "#FFFFFF" },
+  { id: "giallo", bg: "#E8B93C", testo: "#2A1E05" },
+  { id: "nero", bg: "#141319", testo: "#FFFFFF" },
+  { id: "bianco", bg: "#F3EFE7", testo: "#1A1822" }
+];
+const colore = (id) => COLORI.find(c => c.id === id) || COLORI[0];
+const FORME_NUOVE = {
+  etichetta: { tipo: "etichetta", testo: "ETICHETTA", w: 260, h: 74, rot: 0, colore: "verde", font: 30 },
+  cerchio: { tipo: "cerchio", testo: "T", w: 70, h: 70, rot: 0, colore: "bianco", font: 26 },
+  zona: { tipo: "zona", testo: "Zona", w: 380, h: 240, rot: 0, colore: "marrone", font: 22 },
+  freccia: { tipo: "freccia", testo: "", w: 220, h: 60, rot: 0, colore: "rosso", font: 20 }
+};
 
 /* ---------- Piantina di partenza: 26 tavoli da 8 = 208 posti ---------- */
 function piantinaDefault(n = 26, cols = 5) {
@@ -363,6 +406,8 @@ function useDati() {
   const [sfondo, setSfondo] = useState("");
   const [utenti, setUtenti] = useState(UTENTI_DEFAULT);
   const [attivita, setAttivita] = useState([]);
+  const [mappa, setMappa] = useState({ forme: [], ratio: MAPPA_RATIO_DEF });
+  const [sfondoMappa, setSfondoMappa] = useState("");
   const [pronto, setPronto] = useState(false);
 
   useEffect(() => {
@@ -383,7 +428,15 @@ function useDati() {
       });
       const u4 = db.collection("attivita").orderBy("ts", "desc").limit(150)
         .onSnapshot(s => setAttivita(s.docs.map(d => d.data())), e => console.error(e));
-      return () => { u1(); u2(); u3(); u4(); };
+      const u5 = db.collection("impostazioni").doc("mappa").onSnapshot(d => {
+        const v = d.data();
+        if (v) setMappa({ forme: v.forme || [], ratio: v.ratio || MAPPA_RATIO_DEF });
+      });
+      const u6 = db.collection("impostazioni").doc("mappaSfondo").onSnapshot(d => {
+        const v = d.data();
+        setSfondoMappa(v && v.img ? v.img : "");
+      });
+      return () => { u1(); u2(); u3(); u4(); u5(); u6(); };
     }
     const l = leggiLocale();
     setPren(l.prenotazioni || []);
@@ -391,10 +444,12 @@ function useDati() {
     setSfondo(l.sfondo || "");
     setUtenti(l.utenti && l.utenti.length ? l.utenti : UTENTI_DEFAULT);
     setAttivita(l.attivita || []);
+    setMappa(l.mappa || { forme: [], ratio: MAPPA_RATIO_DEF });
+    setSfondoMappa(l.sfondoMappa || "");
     setPronto(true);
   }, []);
 
-  const salvaLocale = (extra) => scriviLocale({ prenotazioni, tavoli, sfondo, utenti, attivita, ...extra });
+  const salvaLocale = (extra) => scriviLocale({ prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, ...extra });
 
   const salvaPren = useCallback((p) => {
     const dati = { ...p, ...firma() };
@@ -433,13 +488,26 @@ function useDati() {
     salvaLocale({ utenti: lista });
   }, [prenotazioni, tavoli, sfondo, attivita]);
 
+  const salvaMappa = useCallback((forme, ratio) => {
+    const r = ratio || (mappa.ratio || MAPPA_RATIO_DEF);
+    setMappa({ forme, ratio: r });
+    if (db) return db.collection("impostazioni").doc("mappa").set({ forme, ratio: r });
+    salvaLocale({ mappa: { forme, ratio: r } });
+  }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa]);
+
+  const salvaSfondoMappa = useCallback((img) => {
+    setSfondoMappa(img);
+    if (db) return db.collection("impostazioni").doc("mappaSfondo").set({ img });
+    salvaLocale({ sfondoMappa: img });
+  }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa]);
+
   const log = useCallback((azione) => {
     const voce = { utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.nome : "?", azione, ts: Date.now() };
     if (db) { db.collection("attivita").add(voce).catch(e => console.error(e)); return; }
     setAttivita(prev => { const next = [voce, ...prev].slice(0, 200); salvaLocale({ attivita: next }); return next; });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
 
-  return { prenotazioni, tavoli, sfondo, utenti, attivita, pronto, salvaPren, eliminaPren, salvaPiantina, salvaUtenti, log, cloud: !!db };
+  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, log, cloud: !!db };
 }
 
 /* =========================================================
@@ -667,7 +735,7 @@ function App() {
         </div>
         <div className="top-row" style={{ marginTop: 8 }}>
           <div className="tabs">
-            {[["piantina", "Piantina"], ["registro", "Registro"], ["servizio", "Servizio & cucina"]]
+            {[["piantina", "Piantina"], ["registro", "Registro"], ["servizio", "Servizio & cucina"], ["mappa", "Area"]]
               .concat(isAdmin ? [["impostazioni", "Impostazioni"]] : [])
               .map(([k, l]) => (
                 <button key={k} className={"tab" + (vistaOk === k ? " on" : "")} onClick={() => setVista(k)}>{l}</button>
@@ -848,6 +916,16 @@ function App() {
         </div>
       )}
 
+      {/* ---------- MAPPA AREA ---------- */}
+      {vistaOk === "mappa" && (
+        <div style={{ marginTop: 16 }}>
+          <MappaView mappa={D.mappa} sfondo={D.sfondoMappa} isAdmin={isAdmin} mobile={mobile}
+            onSalva={(forme, ratio) => D.salvaMappa(forme, ratio)}
+            onSfondo={(img) => D.salvaSfondoMappa(img)}
+            log={D.log} mostra={mostra} />
+        </div>
+      )}
+
       {/* ---------- IMPOSTAZIONI ---------- */}
       {vistaOk === "impostazioni" && (
         <div className="split" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -913,7 +991,7 @@ function App() {
 
       {/* ---------- Navigazione telefono ---------- */}
       <nav className="bottom-nav no-print">
-        {[["piantina", "Sala"], ["registro", "Registro"], ["servizio", "Cucina"]]
+        {[["piantina", "Sala"], ["registro", "Registro"], ["servizio", "Cucina"], ["mappa", "Area"]]
           .concat(isAdmin ? [["impostazioni", "Impostazioni"]] : [])
           .map(([k, l]) => (
             <button key={k} className={vistaOk === k ? "on" : ""} onClick={() => setVista(k)}>{l}</button>
@@ -947,6 +1025,323 @@ function App() {
       )}
 
       {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+/* ---------- Editor mappa dell'area ---------- */
+function raggio(f) { return f.tipo === "cerchio" ? Math.min(f.w, f.h) / 2 : (f.tipo === "zona" ? 10 : Math.min(f.h / 2, 20)); }
+
+function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mobile }) {
+  const H = Math.round(MAPPA_W / (mappa.ratio || MAPPA_RATIO_DEF));
+  const [F, setF] = useState(mappa.forme || []);
+  const [sel, setSel] = useState(null);
+  const [zoom, setZoom] = useState(() => (window.innerWidth <= 760 ? 0.24 : 0.55));
+  const wrapRef = useRef(null);
+  const planRef = useRef(null);
+  const drag = useRef(null);
+  const Fref = useRef(F);
+  Fref.current = F;
+
+  useEffect(() => { if (!drag.current) setF(mappa.forme || []); }, [mappa]);
+
+  const selezionata = F.find(f => f.id === sel);
+  const commit = (next) => { setF(next); onSalva(next); };
+  const aggiorna = (id, patch, salva) => {
+    const next = F.map(f => (f.id === id ? { ...f, ...patch } : f));
+    setF(next);
+    if (salva) onSalva(next);
+  };
+
+  const adatta = () => { if (wrapRef.current) setZoom(+((wrapRef.current.clientWidth - 20) / MAPPA_W).toFixed(3)); };
+
+  const aggiungi = (tipo) => {
+    const base = FORME_NUOVE[tipo];
+    const f = { ...base, id: uid(), x: Math.round(MAPPA_W / 2 - base.w / 2), y: Math.round(H / 2 - base.h / 2) };
+    commit([...F, f]);
+    setSel(f.id);
+    log("ha aggiunto una forma alla mappa dell'area");
+  };
+
+  const duplica = () => {
+    if (!selezionata) return;
+    const f = { ...selezionata, id: uid(), x: selezionata.x + 30, y: selezionata.y + 30 };
+    commit([...F, f]); setSel(f.id);
+  };
+
+  const elimina = () => {
+    if (!selezionata) return;
+    commit(F.filter(f => f.id !== sel)); setSel(null);
+    log("ha rimosso una forma dalla mappa dell'area");
+  };
+
+  /* --- Trascinamento e ridimensionamento --- */
+  const giu = (e, f, modo) => {
+    if (!isAdmin) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = planRef.current.getBoundingClientRect();
+    drag.current = {
+      id: f.id, modo,
+      px: (e.clientX - r.left) / zoom, py: (e.clientY - r.top) / zoom,
+      x: f.x, y: f.y, w: f.w, h: f.h, mosso: false
+    };
+    setSel(f.id);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const muovi = (e) => {
+    const d = drag.current; if (!d) return;
+    const r = planRef.current.getBoundingClientRect();
+    const cx = (e.clientX - r.left) / zoom, cy = (e.clientY - r.top) / zoom;
+    const dx = cx - d.px, dy = cy - d.py;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) d.mosso = true;
+    if (d.modo === "move") aggiorna(d.id, { x: Math.round(d.x + dx), y: Math.round(d.y + dy) });
+    else aggiorna(d.id, { w: Math.max(30, Math.round(d.w + dx)), h: Math.max(30, Math.round(d.h + dy)) });
+  };
+  const su = () => {
+    if (drag.current && drag.current.mosso) onSalva(Fref.current);
+    drag.current = null;
+  };
+
+  /* --- Caricamento immagine di sfondo --- */
+  const caricaSfondo = (file) => {
+    if (!file) return;
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scala = Math.min(1, 1600 / img.width);
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * scala); c.height = Math.round(img.height * scala);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        let q = 0.72, url = c.toDataURL("image/jpeg", q);
+        while (url.length > 700000 && q > 0.3) { q -= 0.08; url = c.toDataURL("image/jpeg", q); }
+        if (url.length > 900000) return mostra("Immagine troppo pesante: riducila e riprova");
+        onSfondo(url);
+        onSalva(Fref.current, img.width / img.height);
+        log("ha caricato la cartina dell'area");
+        mostra("Cartina caricata");
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  };
+
+  /* --- Disegno su canvas per l'esportazione --- */
+  const rettArrotondato = (ctx, x, y, w, h, r) => {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  };
+
+  const disegnaForma = (ctx, f) => {
+    const col = colore(f.colore);
+    ctx.save();
+    ctx.translate(f.x + f.w / 2, f.y + f.h / 2);
+    ctx.rotate((f.rot || 0) * Math.PI / 180);
+    const w = f.w, h = f.h;
+    if (f.tipo === "zona") {
+      ctx.globalAlpha = 0.35; ctx.fillStyle = col.bg;
+      rettArrotondato(ctx, -w / 2, -h / 2, w, h, 10); ctx.fill();
+      ctx.globalAlpha = 1; ctx.setLineDash([12, 9]); ctx.lineWidth = 3; ctx.strokeStyle = col.bg;
+      rettArrotondato(ctx, -w / 2, -h / 2, w, h, 10); ctx.stroke(); ctx.setLineDash([]);
+      if (f.testo) {
+        ctx.fillStyle = col.bg; ctx.textAlign = "left"; ctx.textBaseline = "top";
+        ctx.font = "700 " + (f.font || 22) + "px 'IBM Plex Sans', sans-serif";
+        ctx.fillText(f.testo, -w / 2 + 12, -h / 2 + 10);
+      }
+    } else if (f.tipo === "freccia") {
+      const p = Math.max(6, h * 0.18);
+      ctx.strokeStyle = col.bg; ctx.fillStyle = col.bg; ctx.lineWidth = p; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(-w / 2, 0); ctx.lineTo(w / 2 - p * 2.2, 0); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(w / 2, 0);
+      ctx.lineTo(w / 2 - p * 2.6, -p * 1.7);
+      ctx.lineTo(w / 2 - p * 2.6, p * 1.7);
+      ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillStyle = col.bg;
+      if (f.tipo === "cerchio") { ctx.beginPath(); ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2); ctx.fill(); }
+      else { rettArrotondato(ctx, -w / 2, -h / 2, w, h, raggio(f)); ctx.fill(); }
+      if (f.testo) {
+        ctx.fillStyle = col.testo; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.font = "800 " + (f.font || 30) + "px 'IBM Plex Sans', sans-serif";
+        const righe = String(f.testo).split("\n");
+        const lh = (f.font || 30) * 1.15;
+        righe.forEach((r, i) => ctx.fillText(r, 0, (i - (righe.length - 1) / 2) * lh));
+      }
+    }
+    ctx.restore();
+  };
+
+  const componiCanvas = async () => {
+    const S = 2;
+    const c = document.createElement("canvas");
+    c.width = MAPPA_W * S; c.height = H * S;
+    const ctx = c.getContext("2d");
+    ctx.scale(S, S);
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, MAPPA_W, H);
+    if (sfondo) {
+      await new Promise(res => {
+        const img = new Image();
+        img.onload = () => {
+          const s = Math.min(MAPPA_W / img.width, H / img.height);
+          const w = img.width * s, h = img.height * s;
+          ctx.drawImage(img, (MAPPA_W - w) / 2, (H - h) / 2, w, h);
+          res();
+        };
+        img.onerror = res;
+        img.src = sfondo;
+      });
+    }
+    if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
+    F.forEach(f => disegnaForma(ctx, f));
+    return c;
+  };
+
+  const esportaPNG = async () => {
+    const c = await componiCanvas();
+    const a = document.createElement("a");
+    a.href = c.toDataURL("image/png");
+    a.download = "mappa-festival-fabbrico.png";
+    a.click();
+    mostra("Immagine esportata");
+  };
+
+  const esportaPDF = async () => {
+    if (!window.jspdf || !window.jspdf.jsPDF) { mostra("Libreria PDF non caricata: uso il PNG"); return esportaPNG(); }
+    const c = await componiCanvas();
+    const dati = c.toDataURL("image/jpeg", 0.92);
+    const orizz = MAPPA_W >= H;
+    const pdf = new window.jspdf.jsPDF({ orientation: orizz ? "landscape" : "portrait", unit: "mm", format: "a4" });
+    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight(), m = 8;
+    const s = Math.min((pw - 2 * m) / MAPPA_W, (ph - 2 * m) / H);
+    pdf.addImage(dati, "JPEG", (pw - MAPPA_W * s) / 2, (ph - H * s) / 2, MAPPA_W * s, H * s);
+    pdf.save("mappa-festival-fabbrico.pdf");
+    log("ha esportato la mappa dell'area in PDF");
+    mostra("PDF esportato");
+  };
+
+  return (
+    <div>
+      <div className="plan-bar no-print">
+        {isAdmin && (
+          <div className="row" style={{ flex: "0 0 auto", gap: 6, flexWrap: "wrap" }}>
+            <button className="btn sm" onClick={() => aggiungi("etichetta")}>+ Etichetta</button>
+            <button className="btn ghost sm" onClick={() => aggiungi("cerchio")}>+ Cerchio</button>
+            <button className="btn ghost sm" onClick={() => aggiungi("zona")}>+ Zona</button>
+            <button className="btn ghost sm" onClick={() => aggiungi("freccia")}>+ Freccia</button>
+          </div>
+        )}
+        <button className="btn ghost sm" onClick={() => setZoom(z => Math.max(0.1, +(z - 0.05).toFixed(3)))}>−</button>
+        <span className="num" style={{ minWidth: 44, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
+        <button className="btn ghost sm" onClick={() => setZoom(z => Math.min(1.4, +(z + 0.05).toFixed(3)))}>+</button>
+        <button className="btn ghost sm" onClick={adatta}>Adatta</button>
+        <div className="spacer" />
+        <button className="btn sm" onClick={esportaPDF}>Esporta PDF</button>
+        <button className="btn ghost sm" onClick={esportaPNG}>PNG</button>
+      </div>
+
+      <div className="mappa-wrap" ref={wrapRef}>
+        <div className="mappa" ref={planRef}
+          style={{ width: MAPPA_W, height: H, transform: "scale(" + zoom + ")" }}
+          onPointerMove={muovi} onPointerUp={su} onPointerCancel={su}
+          onClick={() => { if (!drag.current) setSel(null); }}>
+          {sfondo && <div className="mappa-bg" style={{ backgroundImage: "url(" + sfondo + ")" }} />}
+          {F.map(f => {
+            const col = colore(f.colore);
+            const zona = f.tipo === "zona";
+            return (
+              <div key={f.id}
+                className={"forma" + (zona ? " zona" : "") + (sel === f.id ? " sel" : "")}
+                style={{
+                  left: f.x, top: f.y, width: f.w, height: f.h,
+                  transform: "rotate(" + (f.rot || 0) + "deg)",
+                  background: f.tipo === "freccia" ? "transparent" : (zona ? col.bg + "59" : col.bg),
+                  border: zona ? "3px dashed " + col.bg : "none",
+                  borderRadius: raggio(f),
+                  color: zona ? col.bg : col.testo
+                }}
+                onPointerDown={e => giu(e, f, "move")}
+                onClick={e => { e.stopPropagation(); setSel(f.id); }}>
+                {f.tipo === "freccia" ? (
+                  <svg width="100%" height="100%" viewBox="0 0 100 40" preserveAspectRatio="none">
+                    <path d="M0 20 H72" stroke={col.bg} strokeWidth="9" strokeLinecap="round" />
+                    <path d="M100 20 L68 4 L68 36 Z" fill={col.bg} />
+                  </svg>
+                ) : (
+                  <span className="txt" style={{ fontSize: f.font || 30 }}>{f.testo}</span>
+                )}
+                {isAdmin && sel === f.id && (
+                  <span className="maniglia" onPointerDown={e => giu(e, f, "resize")} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {isAdmin && (
+        <div className="split" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 12 }}>
+          <div className="panel no-print">
+            <h2>Forma selezionata</h2>
+            {!selezionata && <p className="hint">Tocca una forma sulla mappa per modificarla, oppure aggiungine una dai pulsanti in alto.</p>}
+            {selezionata && (
+              <div>
+                {selezionata.tipo !== "freccia" && (
+                  <div className="field"><label>Testo</label>
+                    <input value={selezionata.testo}
+                      onChange={e => aggiorna(sel, { testo: e.target.value })}
+                      onBlur={() => onSalva(Fref.current)} /></div>
+                )}
+                <div className="tavolozza">
+                  {COLORI.map(c => (
+                    <button key={c.id} className={"pastiglia" + (selezionata.colore === c.id ? " on" : "")}
+                      style={{ background: c.bg }} onClick={() => aggiorna(sel, { colore: c.id }, true)} />
+                  ))}
+                </div>
+                <div className="prop"><label>Rotazione</label>
+                  <input type="range" min="0" max="345" step="15" value={selezionata.rot || 0}
+                    onChange={e => aggiorna(sel, { rot: parseInt(e.target.value) })}
+                    onPointerUp={() => onSalva(Fref.current)} />
+                  <span className="num">{selezionata.rot || 0}°</span></div>
+                {selezionata.tipo !== "freccia" && (
+                  <div className="prop"><label>Testo px</label>
+                    <input type="range" min="12" max="80" step="1" value={selezionata.font || 30}
+                      onChange={e => aggiorna(sel, { font: parseInt(e.target.value) })}
+                      onPointerUp={() => onSalva(Fref.current)} />
+                    <span className="num">{selezionata.font || 30}</span></div>
+                )}
+                <div className="row" style={{ marginTop: 10 }}>
+                  <button className="btn ghost sm" onClick={duplica}>Duplica</button>
+                  <button className="btn ghost sm" onClick={() => { commit([...F.filter(f => f.id !== sel), selezionata]); }}>Porta avanti</button>
+                  <button className="btn danger sm" onClick={elimina}>Elimina</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="panel no-print">
+            <h2>Cartina di sfondo</h2>
+            <p className="hint">Carica la foto satellitare della piazza. Viene ridotta e salvata nel database, così la vedono tutti i dispositivi.</p>
+            <input type="file" accept="image/*" style={{ marginTop: 10 }}
+              onChange={e => { caricaSfondo(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+            {sfondo && (
+              <button className="btn ghost sm" style={{ marginTop: 10 }}
+                onClick={() => { if (confirm("Rimuovere la cartina di sfondo?")) { onSfondo(""); log("ha rimosso la cartina dell'area"); } }}>
+                Rimuovi cartina
+              </button>
+            )}
+            <p className="hint" style={{ marginTop: 12 }}>
+              Forme sulla mappa: <b className="num">{F.length}</b>. L'esportazione PDF produce un A4 orizzontale con cartina e forme.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
