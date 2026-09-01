@@ -205,6 +205,32 @@
   .log-riga time{font-family:"IBM Plex Mono",monospace;color:var(--muted);white-space:nowrap}
   .log-riga b{color:var(--amber);font-weight:600;white-space:nowrap}
 
+  /* ---------- Manodopera ---------- */
+  .area-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:12px}
+  .area-top{display:flex;align-items:center;gap:10px;padding:11px 14px;border-left:6px solid var(--amber)}
+  .area-top h3{margin:0;font-family:"Bricolage Grotesque",sans-serif;font-size:16px;flex:1}
+  .copertura{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:13px;padding:3px 10px;border-radius:99px;border:1px solid var(--line)}
+  .copertura.ok{color:var(--verde);border-color:rgba(79,195,161,.45)}
+  .copertura.ko{color:var(--rosso);border-color:rgba(228,91,109,.45)}
+  .mans{border-top:1px solid var(--line);padding:10px 14px}
+  .mans-riga,.intestazione{display:grid;grid-template-columns:1.5fr 1fr 74px 74px 84px;gap:8px;align-items:center}
+  .intestazione{padding:2px 14px 6px;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .intestazione span:nth-child(n+3){text-align:center}
+  .cifra{font-family:"IBM Plex Mono",monospace;text-align:center}
+  .delta{font-family:"IBM Plex Mono",monospace;font-weight:600;text-align:center;border-radius:7px;padding:8px 0}
+  .delta.ok{color:var(--verde);background:rgba(79,195,161,.13)}
+  .delta.ko{color:var(--rosso);background:rgba(228,91,109,.13)}
+  .persone{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;align-items:center}
+  .persona{display:inline-flex;align-items:center;gap:4px;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;padding:5px 6px 5px 12px;font-size:13px}
+  .persona button{color:var(--muted);font-size:16px;line-height:1;padding:0 5px}
+  .persona button:hover{color:var(--rosso)}
+  .add-persona{width:160px;border-radius:99px;border-style:dashed;padding:7px 13px;font-size:13px}
+  @media(max-width:760px){
+    .intestazione{display:none}
+    .mans-riga{grid-template-columns:1fr 1fr 1fr;gap:6px}
+    .mans-riga .campo-largo{grid-column:1 / -1}
+  }
+
   /* ---------- Editor mappa area ---------- */
   .mappa-wrap{position:relative;overflow:auto;border:1px solid var(--line);border-radius:var(--r);background:#0E0D14;height:calc(100vh - 250px);min-height:400px}
   .scaler{position:relative}
@@ -357,6 +383,11 @@ const COLORI = [
   { id: "bianco", bg: "#F3EFE7", testo: "#1A1822" }
 ];
 const colore = (id) => COLORI.find(c => c.id === id) || COLORI[0];
+
+/* =========================================================
+   4) MANODOPERA
+   ========================================================= */
+const FASCE = ["Tutta la serata", "Allestimento", "1º turno 19:00", "2º turno 21:00", "Riordino"];
 const FORME_NUOVE = {
   etichetta: { tipo: "etichetta", testo: "ETICHETTA", w: 260, h: 74, rot: 0, colore: "verde", font: 30 },
   cerchio: { tipo: "cerchio", testo: "T", w: 70, h: 70, rot: 0, colore: "bianco", font: 26 },
@@ -410,6 +441,7 @@ function useDati() {
   const [attivita, setAttivita] = useState([]);
   const [mappa, setMappa] = useState({ forme: [], ratio: MAPPA_RATIO_DEF });
   const [sfondoMappa, setSfondoMappa] = useState("");
+  const [manodopera, setManodopera] = useState({ aree: [] });
   const [pronto, setPronto] = useState(false);
 
   useEffect(() => {
@@ -438,7 +470,11 @@ function useDati() {
         const v = d.data();
         setSfondoMappa(v && v.img ? v.img : "");
       });
-      return () => { u1(); u2(); u3(); u4(); u5(); u6(); };
+      const u7 = db.collection("impostazioni").doc("manodopera").onSnapshot(d => {
+        const v = d.data();
+        setManodopera({ aree: (v && v.aree) || [] });
+      });
+      return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
     }
     const l = leggiLocale();
     setPren(l.prenotazioni || []);
@@ -448,10 +484,11 @@ function useDati() {
     setAttivita(l.attivita || []);
     setMappa(l.mappa || { forme: [], ratio: MAPPA_RATIO_DEF });
     setSfondoMappa(l.sfondoMappa || "");
+    setManodopera(l.manodopera || { aree: [] });
     setPronto(true);
   }, []);
 
-  const salvaLocale = (extra) => scriviLocale({ prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, ...extra });
+  const salvaLocale = (extra) => scriviLocale({ prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera, ...extra });
 
   const salvaPren = useCallback((p) => {
     const dati = { ...p, ...firma() };
@@ -503,13 +540,19 @@ function useDati() {
     salvaLocale({ sfondoMappa: img });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa]);
 
+  const salvaManodopera = useCallback((aree) => {
+    setManodopera({ aree });
+    if (db) return db.collection("impostazioni").doc("manodopera").set({ aree });
+    salvaLocale({ manodopera: { aree } });
+  }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa]);
+
   const log = useCallback((azione) => {
     const voce = { utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.nome : "?", azione, ts: Date.now() };
     if (db) { db.collection("attivita").add(voce).catch(e => console.error(e)); return; }
     setAttivita(prev => { const next = [voce, ...prev].slice(0, 200); salvaLocale({ attivita: next }); return next; });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
 
-  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, log, cloud: !!db };
+  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, salvaManodopera, manodopera, log, cloud: !!db };
 }
 
 /* =========================================================
@@ -737,7 +780,7 @@ function App() {
         </div>
         <div className="top-row" style={{ marginTop: 8 }}>
           <div className="tabs">
-            {[["piantina", "Piantina"], ["registro", "Registro"], ["servizio", "Servizio & cucina"], ["mappa", "Area"]]
+            {[["piantina", "Piantina"], ["registro", "Registro"], ["servizio", "Servizio & cucina"], ["manodopera", "Manodopera"], ["mappa", "Area"]]
               .concat(isAdmin ? [["impostazioni", "Impostazioni"]] : [])
               .map(([k, l]) => (
                 <button key={k} className={"tab" + (vistaOk === k ? " on" : "")} onClick={() => setVista(k)}>{l}</button>
@@ -920,6 +963,12 @@ function App() {
         </div>
       )}
 
+      {/* ---------- MANODOPERA ---------- */}
+      {vistaOk === "manodopera" && (
+        <ManodoperaView aree={D.manodopera.aree || []} isAdmin={isAdmin}
+          onSalva={(aree) => D.salvaManodopera(aree)} log={D.log} mostra={mostra} />
+      )}
+
       {/* ---------- MAPPA AREA ---------- */}
       {vistaOk === "mappa" && (
         <div style={{ marginTop: 16 }}>
@@ -995,7 +1044,7 @@ function App() {
 
       {/* ---------- Navigazione telefono ---------- */}
       <nav className="bottom-nav no-print">
-        {[["piantina", "Sala"], ["registro", "Registro"], ["servizio", "Cucina"], ["mappa", "Area"]]
+        {[["piantina", "Sala"], ["registro", "Registro"], ["servizio", "Cucina"], ["manodopera", "Staff"], ["mappa", "Area"]]
           .concat(isAdmin ? [["impostazioni", "Impostazioni"]] : [])
           .map(([k, l]) => (
             <button key={k} className={vistaOk === k ? "on" : ""} onClick={() => setVista(k)}>{l}</button>
@@ -1358,6 +1407,227 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
             <p className="hint" style={{ marginTop: 12 }}>
               Forme sulla mappa: <b className="num">{F.length}</b>. L'esportazione PDF produce un A4 orizzontale con cartina e forme.
             </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Manodopera ---------- */
+function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
+  const [nuovaArea, setNuovaArea] = useState("");
+
+  const conta = (m) => ({ rich: m.richiesti || 0, pres: (m.persone || []).length });
+  const totArea = (a) => (a.mansioni || []).reduce((t, m) => {
+    const c = conta(m); return { rich: t.rich + c.rich, pres: t.pres + c.pres };
+  }, { rich: 0, pres: 0 });
+  const totale = aree.reduce((t, a) => {
+    const c = totArea(a); return { rich: t.rich + c.rich, pres: t.pres + c.pres };
+  }, { rich: 0, pres: 0 });
+
+  const salva = (next, azione) => { onSalva(next); if (azione) log(azione); };
+  const patchArea = (id, patch, azione) => salva(aree.map(a => (a.id === id ? { ...a, ...patch } : a)), azione);
+  const patchMans = (aid, mid, patch, azione) =>
+    patchArea(aid, { mansioni: (aree.find(a => a.id === aid).mansioni || []).map(m => (m.id === mid ? { ...m, ...patch } : m)) }, azione);
+
+  const aggiungiArea = () => {
+    const n = nuovaArea.trim(); if (!n) return;
+    const col = COLORI[aree.length % COLORI.length].id;
+    salva([...aree, { id: uid(), nome: n, colore: col, mansioni: [] }], "ha creato l'area " + n);
+    setNuovaArea(""); mostra("Area creata");
+  };
+
+  const aggiungiMansione = (a) =>
+    patchArea(a.id, { mansioni: [...(a.mansioni || []), { id: uid(), nome: "Nuova mansione", fascia: FASCE[0], richiesti: 1, persone: [] }] },
+      "ha aggiunto una mansione in " + a.nome);
+
+  const aggiungiPersona = (a, m, nome) => {
+    const n = (nome || "").trim(); if (!n) return;
+    if ((m.persone || []).some(p => p.toLowerCase() === n.toLowerCase())) return mostra(n + " è già in questa mansione");
+    patchMans(a.id, m.id, { persone: [...(m.persone || []), n] }, "ha assegnato " + n + " a " + m.nome + " (" + a.nome + ")");
+  };
+
+  const togliPersona = (a, m, nome) =>
+    patchMans(a.id, m.id, { persone: (m.persone || []).filter(p => p !== nome) }, "ha tolto " + nome + " da " + m.nome + " (" + a.nome + ")");
+
+  /* --- PDF --- */
+  const esportaPDF = () => {
+    if (!window.jspdf || !window.jspdf.jsPDF) return mostra("Libreria PDF non disponibile");
+    const pdf = new window.jspdf.jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const PW = pdf.internal.pageSize.getWidth(), PH = pdf.internal.pageSize.getHeight();
+    const M = 14, X = [M, M + 62, M + 100, M + 122, M + 144];
+    let y = M;
+
+    const intesta = () => {
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(17); pdf.setTextColor(20);
+      pdf.text("Festival Fabbrico — Manodopera", M, y); y += 7;
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(9.5); pdf.setTextColor(110);
+      pdf.text("Fabbisogno " + totale.rich + " persone · assegnate " + totale.pres +
+        " · mancano " + Math.max(0, totale.rich - totale.pres) +
+        "    (aggiornato al " + new Date().toLocaleString("it-IT") + ")", M, y);
+      y += 8;
+    };
+    const nuovaPagina = () => { pdf.addPage(); y = M; };
+    const spazio = (h) => { if (y + h > PH - M) nuovaPagina(); };
+
+    intesta();
+
+    aree.forEach(a => {
+      const t = totArea(a), manca = Math.max(0, t.rich - t.pres);
+      spazio(22);
+      const c = colore(a.colore);
+      const hex = c.bg.replace("#", "");
+      pdf.setFillColor(parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16));
+      pdf.rect(M, y, PW - 2 * M, 9, "F");
+      pdf.setTextColor(c.testo === "#FFFFFF" ? 255 : 30);
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(11);
+      pdf.text(a.nome.toUpperCase(), M + 3, y + 6.2);
+      pdf.text(t.pres + "/" + t.rich + (manca ? "  —  mancano " + manca : "  —  completa"), PW - M - 3, y + 6.2, { align: "right" });
+      y += 12;
+
+      pdf.setTextColor(120); pdf.setFontSize(8);
+      pdf.text("MANSIONE", X[0], y); pdf.text("FASCIA", X[1], y);
+      pdf.text("RICH.", X[2], y); pdf.text("PRES.", X[3], y); pdf.text("MANCANO", X[4], y);
+      y += 2; pdf.setDrawColor(210); pdf.line(M, y, PW - M, y); y += 4.5;
+
+      (a.mansioni || []).forEach(m => {
+        const cc = conta(m), d = Math.max(0, cc.rich - cc.pres);
+        const persone = (m.persone || []).join(", ") || "—";
+        const righe = pdf.splitTextToSize(persone, PW - 2 * M - 4);
+        const h = 5.5 + righe.length * 4.2 + 3;
+        spazio(h);
+        pdf.setTextColor(30); pdf.setFont("helvetica", "bold"); pdf.setFontSize(9.5);
+        pdf.text(String(m.nome || ""), X[0], y);
+        pdf.setFont("helvetica", "normal"); pdf.setTextColor(90);
+        pdf.text(String(m.fascia || ""), X[1], y);
+        pdf.setTextColor(30);
+        pdf.text(String(cc.rich), X[2] + 6, y, { align: "right" });
+        pdf.text(String(cc.pres), X[3] + 6, y, { align: "right" });
+        if (d > 0) pdf.setTextColor(200, 50, 60); else pdf.setTextColor(30, 150, 110);
+        pdf.setFont("helvetica", "bold");
+        pdf.text(d > 0 ? "-" + d : "ok", X[4] + 10, y, { align: "right" });
+        y += 4.6;
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(110);
+        righe.forEach(r => { pdf.text(r, X[0] + 2, y); y += 4.2; });
+        y += 2.5;
+        pdf.setDrawColor(235); pdf.line(M, y - 1.5, PW - M, y - 1.5);
+      });
+      y += 5;
+    });
+
+    if (aree.length === 0) { pdf.setTextColor(120); pdf.setFontSize(10); pdf.text("Nessuna area inserita.", M, y); }
+
+    const n = pdf.internal.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+      pdf.setPage(i); pdf.setFontSize(8); pdf.setTextColor(150);
+      pdf.text("Pagina " + i + " di " + n, PW - M, PH - 8, { align: "right" });
+    }
+    pdf.save("manodopera-festival-fabbrico.pdf");
+    log("ha esportato il piano manodopera in PDF");
+    mostra("PDF esportato");
+  };
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="plan-bar no-print">
+        <div className="stats">
+          <div className="stat"><b className="num">{totale.rich}</b><i>richiesti</i></div>
+          <div className="stat ok"><b className="num">{totale.pres}</b><i>assegnati</i></div>
+          <div className={"stat " + (totale.rich - totale.pres > 0 ? "bad" : "ok")}>
+            <b className="num">{Math.max(0, totale.rich - totale.pres)}</b><i>mancano</i></div>
+        </div>
+        <div className="spacer" />
+        <button className="btn sm" onClick={esportaPDF}>Esporta PDF</button>
+      </div>
+
+      {aree.length === 0 && (
+        <p className="hint" style={{ margin: "10px 0 16px" }}>
+          Nessuna area ancora. Crea la prima qui sotto (Cucina, Casse, Bar, Servizio ai tavoli…), poi dentro ogni area aggiungi le mansioni con quante persone servono.
+        </p>
+      )}
+
+      {aree.map(a => {
+        const t = totArea(a), manca = t.rich - t.pres;
+        const c = colore(a.colore);
+        return (
+          <div key={a.id} className="area-card">
+            <div className="area-top" style={{ borderLeftColor: c.bg }}>
+              {isAdmin
+                ? <input value={a.nome} style={{ flex: 1, background: "transparent", border: "none", fontWeight: 700, fontSize: 16, padding: 0 }}
+                    onChange={e => patchArea(a.id, { nome: e.target.value })}
+                    onBlur={() => log("ha rinominato un'area in " + a.nome)} />
+                : <h3>{a.nome}</h3>}
+              <span className={"copertura " + (manca > 0 ? "ko" : "ok")}>{t.pres}/{t.rich}{manca > 0 ? " · -" + manca : " ✓"}</span>
+              {isAdmin && (
+                <select value={a.colore} onChange={e => patchArea(a.id, { colore: e.target.value })} style={{ width: 110 }}>
+                  {COLORI.map(x => <option key={x.id} value={x.id}>{x.id}</option>)}
+                </select>
+              )}
+              {isAdmin && <button className="btn ghost sm" onClick={() => {
+                if (confirm("Eliminare l'area " + a.nome + " con tutte le mansioni?"))
+                  salva(aree.filter(x => x.id !== a.id), "ha eliminato l'area " + a.nome);
+              }}>×</button>}
+            </div>
+
+            {(a.mansioni || []).length > 0 && (
+              <div className="intestazione">
+                <span>Mansione</span><span>Fascia</span><span>Rich.</span><span>Pres.</span><span>Mancano</span>
+              </div>
+            )}
+
+            {(a.mansioni || []).map(m => {
+              const cc = conta(m), d = cc.rich - cc.pres;
+              return (
+                <div key={m.id} className="mans">
+                  <div className="mans-riga">
+                    <input className="campo-largo" value={m.nome} disabled={!isAdmin}
+                      onChange={e => patchMans(a.id, m.id, { nome: e.target.value })}
+                      onBlur={() => log("ha aggiornato una mansione in " + a.nome)} />
+                    <select value={m.fascia} disabled={!isAdmin} onChange={e => patchMans(a.id, m.id, { fascia: e.target.value }, null)}>
+                      {FASCE.map(f => <option key={f}>{f}</option>)}
+                    </select>
+                    <input className="cifra" type="number" min="0" value={m.richiesti} disabled={!isAdmin}
+                      onChange={e => patchMans(a.id, m.id, { richiesti: parseInt(e.target.value) || 0 })} />
+                    <div className="cifra">{cc.pres}</div>
+                    <div className={"delta " + (d > 0 ? "ko" : "ok")}>{d > 0 ? "-" + d : (d < 0 ? "+" + (-d) : "ok")}</div>
+                  </div>
+                  <div className="persone">
+                    {(m.persone || []).map(p => (
+                      <span key={p} className="persona">{p}
+                        <button onClick={() => togliPersona(a, m, p)} title="Togli">×</button>
+                      </span>
+                    ))}
+                    <input className="add-persona" placeholder="+ persona"
+                      onKeyDown={e => { if (e.key === "Enter") { aggiungiPersona(a, m, e.target.value); e.target.value = ""; } }}
+                      onBlur={e => { if (e.target.value.trim()) { aggiungiPersona(a, m, e.target.value); e.target.value = ""; } }} />
+                  </div>
+                  {isAdmin && (
+                    <button className="btn ghost sm" style={{ marginTop: 8 }} onClick={() => {
+                      if (confirm("Eliminare la mansione " + m.nome + "?"))
+                        patchArea(a.id, { mansioni: a.mansioni.filter(x => x.id !== m.id) }, "ha eliminato la mansione " + m.nome);
+                    }}>Elimina mansione</button>
+                  )}
+                </div>
+              );
+            })}
+
+            {isAdmin && (
+              <div className="mans">
+                <button className="btn ghost sm" onClick={() => aggiungiMansione(a)}>+ Mansione</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {isAdmin && (
+        <div className="panel no-print">
+          <h2>Nuova area</h2>
+          <div className="row">
+            <input value={nuovaArea} onChange={e => setNuovaArea(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && aggiungiArea()} placeholder="Es. Cucina, Casse, Bar spine…" />
+            <button className="btn sm" onClick={aggiungiArea}>Aggiungi</button>
           </div>
         </div>
       )}
