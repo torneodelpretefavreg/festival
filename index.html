@@ -1089,6 +1089,34 @@ function App() {
 }
 
 /* ---------- Editor mappa dell'area ---------- */
+function spezzaTesto(ctx, testo, maxW) {
+  const righe = [];
+  String(testo).split("\n").forEach(par => {
+    const parole = par.split(/\s+/).filter(Boolean);
+    if (!parole.length) { righe.push(""); return; }
+    let riga = parole[0];
+    for (let i = 1; i < parole.length; i++) {
+      const prova = riga + " " + parole[i];
+      if (ctx.measureText(prova).width <= maxW) riga = prova;
+      else { righe.push(riga); riga = parole[i]; }
+    }
+    righe.push(riga);
+  });
+  return righe;
+}
+
+function testoAdattato(ctx, testo, maxW, maxH, fontIniziale, peso) {
+  let fs = fontIniziale, righe;
+  for (;;) {
+    ctx.font = peso + " " + fs + "px 'IBM Plex Sans', sans-serif";
+    righe = spezzaTesto(ctx, testo, maxW);
+    const sfora = righe.some(r => ctx.measureText(r).width > maxW);
+    if ((!sfora && righe.length * fs * 1.15 <= maxH) || fs <= 9) break;
+    fs -= 1;
+  }
+  return { righe, fs };
+}
+
 function raggio(f) { return f.tipo === "cerchio" ? Math.min(f.w, f.h) / 2 : (f.tipo === "zona" ? 10 : Math.min(f.h / 2, 20)); }
 
 function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mobile }) {
@@ -1223,8 +1251,8 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
       rettArrotondato(ctx, -w / 2, -h / 2, w, h, 10); ctx.stroke(); ctx.setLineDash([]);
       if (f.testo) {
         ctx.fillStyle = col.bg; ctx.textAlign = "left"; ctx.textBaseline = "top";
-        ctx.font = "700 " + (f.font || 22) + "px 'IBM Plex Sans', sans-serif";
-        ctx.fillText(f.testo, -w / 2 + 12, -h / 2 + 10);
+        const { righe, fs } = testoAdattato(ctx, f.testo, w - 24, h - 20, f.font || 22, "700");
+        righe.forEach((r, i) => ctx.fillText(r, -w / 2 + 12, -h / 2 + 10 + i * fs * 1.2));
       }
     } else if (f.tipo === "freccia") {
       const p = Math.max(6, h * 0.18);
@@ -1241,9 +1269,9 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
       else { rettArrotondato(ctx, -w / 2, -h / 2, w, h, raggio(f)); ctx.fill(); }
       if (f.testo) {
         ctx.fillStyle = col.testo; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.font = "800 " + (f.font || 30) + "px 'IBM Plex Sans', sans-serif";
-        const righe = String(f.testo).split("\n");
-        const lh = (f.font || 30) * 1.15;
+        const larghezza = (f.tipo === "cerchio" ? w * 0.82 : w - 16);
+        const { righe, fs } = testoAdattato(ctx, f.testo, larghezza, h - 6, f.font || 30, "800");
+        const lh = fs * 1.15;
         righe.forEach((r, i) => ctx.fillText(r, 0, (i - (righe.length - 1) / 2) * lh));
       }
     }
