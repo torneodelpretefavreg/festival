@@ -578,7 +578,7 @@ function occupazione(tavoli, prenotazioni) {
     (p.assegnazioni || []).forEach(a => {
       if (!m[a.tavolo]) m[a.tavolo] = { posti: 0, ospiti: [] };
       m[a.tavolo].posti += a.posti;
-      m[a.tavolo].ospiti.push({ id: p.id, nome: p.nome, posti: a.posti, arrivata: p.stato === "arrivata", walkIn: !!p.walkIn });
+      m[a.tavolo].ospiti.push({ id: p.id, nome: p.nome, posti: a.posti, orario: p.orario || "", arrivata: p.stato === "arrivata", walkIn: !!p.walkIn });
     });
   });
   return m;
@@ -734,7 +734,7 @@ function App() {
     if (filtro === "dasedere") l = l.filter(p => p.stato !== "annullata" && daSedere(p) > 0);
     if (filtro === "sedute") l = l.filter(p => p.stato !== "annullata" && daSedere(p) === 0 && postiAssegnati(p) > 0);
     if (filtro === "arrivate") l = l.filter(p => p.stato === "arrivata");
-    return l.sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+    return l.sort((a, b) => (a.orario || "99:99").localeCompare(b.orario || "99:99") || (a.nome || "").localeCompare(b.nome || ""));
   }, [D.prenotazioni, cerca, filtro]);
 
   /* --- Azioni prenotazione --- */
@@ -752,9 +752,9 @@ function App() {
   };
 
   const esportaCsv = () => {
-    const righe = [["Nome", "Persone", "Tavoli", "Telefono", "Stato", "Note"]];
+    const righe = [["Nome", "Persone", "Orario", "Tavoli", "Telefono", "Stato", "Note"]];
     D.prenotazioni.forEach(p => righe.push([
-      p.nome, p.pax,
+      p.nome, p.pax, p.orario || "",
       (p.assegnazioni || []).map(a => a.tavolo + "(" + a.posti + ")").join(" "),
       p.telefono || "", p.stato || "attesa", (p.note || "").replace(/[\n;]/g, " ")
     ]));
@@ -844,6 +844,7 @@ function App() {
                       <span className="pax num">{p.pax}</span>
                     </div>
                     <div className="pren-meta">
+                      {p.orario && <span className="tag">ore {p.orario}</span>}
                       {(p.assegnazioni || []).map(a => <span key={a.tavolo} className="tag seat">{a.tavolo} · {a.posti}</span>)}
                       {resta > 0 && <span className="tag">{resta} da sedere</span>}
                       {p.stato === "arrivata" && <span className="tag" style={{ color: "var(--verde)", borderColor: "rgba(79,195,161,.4)" }}>arrivata</span>}
@@ -920,12 +921,13 @@ function App() {
             <button className="btn ghost sm" onClick={() => window.print()}>Stampa</button>
           </div>
           <table className="tab-cards">
-            <thead><tr><th>Nome</th><th>Pers.</th><th>Tavoli</th><th>Telefono</th><th>Stato</th><th>Note</th><th>Ultima modifica</th><th></th></tr></thead>
+            <thead><tr><th>Nome</th><th>Pers.</th><th>Orario</th><th>Tavoli</th><th>Telefono</th><th>Stato</th><th>Note</th><th>Ultima modifica</th><th></th></tr></thead>
             <tbody>
-              {D.prenotazioni.slice().sort((a, b) => (a.nome || "").localeCompare(b.nome || "")).map(p => (
+              {D.prenotazioni.slice().sort((a, b) => (a.orario || "99:99").localeCompare(b.orario || "99:99") || (a.nome || "").localeCompare(b.nome || "")).map(p => (
                 <tr key={p.id}>
                   <td data-label="Nome"><b>{p.walkIn ? "◇ " : ""}{p.nome}</b></td>
                   <td className="num" data-label="Persone">{p.pax}</td>
+                  <td className="num" data-label="Orario">{p.orario || "—"}</td>
                   <td className="num" data-label="Tavoli">{(p.assegnazioni || []).map(a => a.tavolo + "(" + a.posti + ")").join(" ") || "—"}</td>
                   <td data-label="Telefono">{p.telefono || "—"}</td>
                   <td data-label="Stato">{p.stato || "attesa"}</td>
@@ -957,7 +959,7 @@ function App() {
                 <h3><span>{t.nome}</span><span className="num">{occ[t.id].posti}/{t.posti}</span></h3>
                 <ul>
                   {occ[t.id].ospiti.map(o => (
-                    <li key={o.id}>{o.nome} — {o.posti} {o.arrivata ? "✓" : ""}
+                    <li key={o.id}>{o.nome} — {o.posti}{o.orario ? " · ore " + o.orario : ""} {o.arrivata ? "✓" : ""}
                       <button className="btn ghost sm no-print" style={{ marginLeft: 6, padding: "0 6px" }} onClick={() => liberaTavolo(t.id, o.id)}>×</button>
                     </li>
                   ))}
@@ -1029,7 +1031,7 @@ function App() {
 
           <div className="panel">
             <h2>Utenti</h2>
-            <p className="hint">Ogni persona entra con il proprio nome: la password è il nome stesso, tutto minuscolo. L'admin entra con <b>admin</b> e la password che hai scelto.</p>
+            <p className="hint">Ogni persona entra con il proprio nome: la password è il nome stesso, tutto minuscolo. Le password qui sotto sono visibili solo a te che sei admin.</p>
             <Utenti utenti={D.utenti} onSalva={(lista, azione) => { D.salvaUtenti(lista); D.log(azione); mostra("Utenti aggiornati"); }} />
           </div>
 
@@ -1667,7 +1669,7 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
 /* ---------- Modale prenotazione ---------- */
 function ModalePren({ dati, onSalva, onElimina, onChiudi }) {
   const [f, setF] = useState({
-    nome: "", pax: 2, telefono: "", note: "", stato: "attesa", assegnazioni: [], ...dati
+    nome: "", pax: 2, orario: "", telefono: "", note: "", stato: "attesa", assegnazioni: [], ...dati
   });
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   return (
@@ -1679,6 +1681,8 @@ function ModalePren({ dati, onSalva, onElimina, onChiudi }) {
         <div className="row">
           <div className="field"><label>N. persone</label>
             <input type="number" min="1" value={f.pax} onChange={e => set("pax", parseInt(e.target.value) || 1)} /></div>
+          <div className="field"><label>Orario</label>
+            <input type="time" value={f.orario || ""} onChange={e => set("orario", e.target.value)} /></div>
           <div className="field"><label>Telefono</label>
             <input value={f.telefono} onChange={e => set("telefono", e.target.value)} /></div>
         </div>
@@ -1749,8 +1753,8 @@ function ModaleIncolla({ onImporta, onChiudi }) {
     const righe = txt.split("\n").map(r => r.trim()).filter(Boolean).map(r => {
       const p = r.split(/[;,\t]/).map(x => x.trim());
       return {
-        nome: p[0], pax: parseInt(p[1]) || 2,
-        telefono: p[2] || "", note: p[3] || "", stato: "attesa", assegnazioni: [], creata: Date.now()
+        nome: p[0], pax: parseInt(p[1]) || 2, orario: /^\d{1,2}[:.]\d{2}$/.test(p[2] || "") ? p[2].replace(".", ":") : "",
+        telefono: p[3] || "", note: p[4] || "", stato: "attesa", assegnazioni: [], creata: Date.now()
       };
     }).filter(r => r.nome);
     onImporta(righe);
@@ -1759,9 +1763,9 @@ function ModaleIncolla({ onImporta, onChiudi }) {
     <div className="overlay" onClick={onChiudi}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <h3>Incolla un elenco</h3>
-        <p className="hint">Una prenotazione per riga: <code>Nome; persone; telefono; note</code>. Bastano nome e persone.</p>
+        <p className="hint">Una prenotazione per riga: <code>Nome; persone; orario; telefono; note</code>. Bastano nome e persone.</p>
         <textarea style={{ minHeight: 180, marginTop: 8 }} value={txt} onChange={e => setTxt(e.target.value)}
-          placeholder={"Fam. Rossi; 6; 3401234567\nBar Centrale; 4"} />
+          placeholder={"Fam. Rossi; 6; 19:30; 3401234567\nBar Centrale; 4; 20:00"} />
         <div className="row" style={{ marginTop: 12 }}>
           <button className="btn" onClick={parse}>Importa</button>
           <button className="btn ghost" onClick={onChiudi}>Annulla</button>
@@ -1845,7 +1849,7 @@ function Utenti({ utenti, onSalva }) {
           {utenti.map(u => (
             <tr key={u.nome}>
               <td data-label="Utente"><b>{u.nome}</b></td>
-              <td className="num" data-label="Password">{norm(u.nome) === ADMIN_USER ? "••••" : norm(u.nome)}</td>
+              <td className="num" data-label="Password">{norm(u.nome) === ADMIN_USER ? ADMIN_PASS : norm(u.nome)}</td>
               <td data-label="Ruolo">{u.ruolo === "admin" ? <span className="ruolo">admin</span> : "staff"}</td>
               <td>
                 {norm(u.nome) !== ADMIN_USER && (
