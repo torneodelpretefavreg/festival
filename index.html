@@ -139,7 +139,21 @@
   .pren-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:5px;font-size:11px;color:var(--muted);align-items:center}
   .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
   .tag.seat{border-color:rgba(242,160,61,.45);color:var(--amber)}
+  .tag.ricavo{border-color:rgba(79,195,161,.45);color:var(--verde)}
+  .tag.costo{border-color:rgba(228,91,109,.45);color:var(--rosso)}
   .pren-actions{display:flex;gap:5px;margin-top:8px}
+
+  /* ---------- Costi & Ricavi ---------- */
+  .imp{font-family:"IBM Plex Mono",monospace;font-weight:600}
+  .imp.pos{color:var(--verde)} .imp.neg{color:var(--rosso)}
+  .imp.muted{color:var(--muted);font-weight:500}
+  .fin-riga{cursor:pointer}
+  .fin-riga:hover td{background:var(--surface-2)}
+  .fin-cat{font-weight:600}
+  .fin-sub{color:var(--muted);font-size:11px;margin-top:2px}
+  .segcaps{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+  .segcaps button{padding:7px 13px;border-radius:99px;border:1px solid var(--line);font-size:12px;color:var(--muted);font-weight:600}
+  .segcaps button.on{border-color:var(--amber);color:var(--amber);background:var(--amber-soft)}
 
   /* ---------- Piantina ---------- */
   .plan-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
@@ -395,6 +409,18 @@ const COLORI = [
 const colore = (id) => COLORI.find(c => c.id === id) || COLORI[0];
 
 /* =========================================================
+   3-bis) COSTI & RICAVI
+   ========================================================= */
+const TIPI_SOGGETTO = [
+  { id: "persona", label: "Persona" },
+  { id: "fornitore", label: "Fornitore" },
+  { id: "ente", label: "Ente / Associazione" },
+  { id: "altro", label: "Altro" }
+];
+const tipoSoggettoLabel = (id) => (TIPI_SOGGETTO.find(t => t.id === id) || TIPI_SOGGETTO[3]).label;
+const euro = (n) => (Number(n) || 0).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+
+/* =========================================================
    4) MANODOPERA
    ========================================================= */
 const FORME_NUOVE = {
@@ -451,6 +477,7 @@ function useDati() {
   const [mappa, setMappa] = useState({ forme: [], ratio: MAPPA_RATIO_DEF });
   const [sfondoMappa, setSfondoMappa] = useState("");
   const [manodopera, setManodopera] = useState({ aree: [] });
+  const [finanze, setFinanze] = useState({ voci: [], soggetti: [] });
   const [pronto, setPronto] = useState(false);
 
   useEffect(() => {
@@ -483,7 +510,11 @@ function useDati() {
         const v = d.data();
         setManodopera({ aree: (v && v.aree) || [] });
       });
-      return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
+      const u8 = db.collection("impostazioni").doc("finanze").onSnapshot(d => {
+        const v = d.data();
+        setFinanze({ voci: (v && v.voci) || [], soggetti: (v && v.soggetti) || [] });
+      });
+      return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); };
     }
     const l = leggiLocale();
     setPren(l.prenotazioni || []);
@@ -494,10 +525,11 @@ function useDati() {
     setMappa(l.mappa || { forme: [], ratio: MAPPA_RATIO_DEF });
     setSfondoMappa(l.sfondoMappa || "");
     setManodopera(l.manodopera || { aree: [] });
+    setFinanze(l.finanze || { voci: [], soggetti: [] });
     setPronto(true);
   }, []);
 
-  const salvaLocale = (extra) => scriviLocale({ prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera, ...extra });
+  const salvaLocale = (extra) => scriviLocale({ prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera, finanze, ...extra });
 
   const salvaPren = useCallback((p) => {
     const dati = { ...p, ...firma() };
@@ -555,13 +587,19 @@ function useDati() {
     salvaLocale({ manodopera: { aree } });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa]);
 
+  const salvaFinanze = useCallback((next) => {
+    setFinanze(next);
+    if (db) return db.collection("impostazioni").doc("finanze").set(next);
+    salvaLocale({ finanze: next });
+  }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera]);
+
   const log = useCallback((azione) => {
     const voce = { utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.nome : "?", azione, ts: Date.now() };
     if (db) { db.collection("attivita").add(voce).catch(e => console.error(e)); return; }
     setAttivita(prev => { const next = [voce, ...prev].slice(0, 200); salvaLocale({ attivita: next }); return next; });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
 
-  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, salvaManodopera, manodopera, log, cloud: !!db };
+  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, salvaManodopera, manodopera, finanze, salvaFinanze, log, cloud: !!db };
 }
 
 /* =========================================================
@@ -766,7 +804,7 @@ function App() {
 
   if (!D.pronto) return <div style={{ padding: 40 }} className="hint">Carico…</div>;
   if (!utente) return <Login utenti={D.utenti} onEntra={entra} />;
-  const vistaOk = (vista === "impostazioni" && !isAdmin) ? "piantina" : vista;
+  const vistaOk = ((vista === "impostazioni" || vista === "finanze") && !isAdmin) ? "piantina" : vista;
 
   return (
     <div className="app">
@@ -786,7 +824,7 @@ function App() {
         <div className="top-row" style={{ marginTop: 8 }}>
           <div className="tabs">
             {[["piantina", "Piantina"], ["registro", "Registro"], ["servizio", "Servizio & cucina"], ["manodopera", "Manodopera"], ["mappa", "Area"]]
-              .concat(isAdmin ? [["impostazioni", "Impostazioni"]] : [])
+              .concat(isAdmin ? [["finanze", "Costi & Ricavi"], ["impostazioni", "Impostazioni"]] : [])
               .map(([k, l]) => (
                 <button key={k} className={"tab" + (vistaOk === k ? " on" : "")} onClick={() => setVista(k)}>{l}</button>
               ))}
@@ -977,6 +1015,11 @@ function App() {
           onSalva={(aree) => D.salvaManodopera(aree)} log={D.log} mostra={mostra} />
       )}
 
+      {/* ---------- COSTI & RICAVI ---------- */}
+      {vistaOk === "finanze" && (
+        <FinanzeView finanze={D.finanze} onSalva={D.salvaFinanze} log={D.log} mostra={mostra} />
+      )}
+
       {/* ---------- MAPPA AREA ---------- */}
       {vistaOk === "mappa" && (
         <div style={{ marginTop: 16 }}>
@@ -1053,7 +1096,7 @@ function App() {
       {/* ---------- Navigazione telefono ---------- */}
       <nav className="bottom-nav no-print">
         {[["piantina", "Sala"], ["registro", "Registro"], ["servizio", "Cucina"], ["manodopera", "Staff"], ["mappa", "Area"]]
-          .concat(isAdmin ? [["impostazioni", "Impostazioni"]] : [])
+          .concat(isAdmin ? [["finanze", "Costi"], ["impostazioni", "Impostazioni"]] : [])
           .map(([k, l]) => (
             <button key={k} className={vistaOk === k ? "on" : ""} onClick={() => setVista(k)}>{l}</button>
           ))}
@@ -1662,6 +1705,235 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* =========================================================
+   COSTI & RICAVI (budget e consuntivo) + Anagrafica
+   ========================================================= */
+function FinanzeView({ finanze, onSalva, log, mostra }) {
+  const voci = finanze.voci || [];
+  const soggetti = finanze.soggetti || [];
+  const [sotto, setSotto] = useState("voci");
+  const [filtro, setFiltro] = useState("tutte");
+  const [modaleVoce, setModaleVoce] = useState(null);
+  const [nuovoSoggetto, setNuovoSoggetto] = useState({ nome: "", tipo: "persona", contatto: "" });
+
+  const nomeSoggetto = (id) => { const s = soggetti.find(x => x.id === id); return s ? s.nome : "—"; };
+
+  const tot = useMemo(() => {
+    const acc = { prevCosti: 0, prevRicavi: 0, consCosti: 0, consRicavi: 0, daConsuntivare: 0 };
+    voci.forEach(v => {
+      const p = Number(v.preventivo) || 0;
+      if (v.tipo === "ricavo") acc.prevRicavi += p; else acc.prevCosti += p;
+      if (v.consuntivo === null || v.consuntivo === undefined) acc.daConsuntivare++;
+      else {
+        const c = Number(v.consuntivo) || 0;
+        if (v.tipo === "ricavo") acc.consRicavi += c; else acc.consCosti += c;
+      }
+    });
+    return { ...acc, saldoPrev: acc.prevRicavi - acc.prevCosti, saldoCons: acc.consRicavi - acc.consCosti };
+  }, [voci]);
+
+  const listaVoci = useMemo(() => {
+    let l = voci.slice();
+    if (filtro === "costo") l = l.filter(v => v.tipo === "costo");
+    if (filtro === "ricavo") l = l.filter(v => v.tipo === "ricavo");
+    if (filtro === "daconsuntivare") l = l.filter(v => v.consuntivo === null || v.consuntivo === undefined);
+    return l.sort((a, b) => (b.creata || 0) - (a.creata || 0));
+  }, [voci, filtro]);
+
+  const salvaVoce = (v) => {
+    const dati = { ...v, ...firma() };
+    const next = voci.some(x => x.id === dati.id)
+      ? voci.map(x => (x.id === dati.id ? dati : x))
+      : [...voci, { ...dati, id: dati.id || uid() }];
+    onSalva({ ...finanze, voci: next });
+    log((v.id ? "ha modificato la voce " : "ha inserito la voce ") + v.voce + " (" + (v.tipo === "ricavo" ? "ricavo" : "costo") + ")");
+    setModaleVoce(null); mostra("Voce salvata");
+  };
+  const eliminaVoce = (id) => {
+    const v = voci.find(x => x.id === id);
+    onSalva({ ...finanze, voci: voci.filter(x => x.id !== id) });
+    log("ha eliminato la voce " + (v ? v.voce : id));
+    setModaleVoce(null); mostra("Voce eliminata");
+  };
+
+  const patchSoggetto = (id, patch, azione) => {
+    onSalva({ ...finanze, soggetti: soggetti.map(s => (s.id === id ? { ...s, ...patch, ...firma() } : s)) });
+    if (azione) log(azione);
+  };
+  const eliminaSoggetto = (id) => {
+    const s = soggetti.find(x => x.id === id);
+    if (voci.some(v => v.soggetto === id) && !confirm("Ci sono voci di costo/ricavo collegate a " + (s ? s.nome : "questo soggetto") + ". Eliminarlo comunque dall'anagrafica?")) return;
+    onSalva({ ...finanze, soggetti: soggetti.filter(x => x.id !== id) });
+    log("ha eliminato dall'anagrafica " + (s ? s.nome : id));
+    mostra("Eliminato dall'anagrafica");
+  };
+  const aggiungiSoggetto = () => {
+    const n = nuovoSoggetto.nome.trim(); if (!n) return;
+    if (soggetti.some(s => s.nome.toLowerCase() === n.toLowerCase())) return mostra(n + " è già in anagrafica");
+    const s = { id: uid(), nome: n, tipo: nuovoSoggetto.tipo, contatto: nuovoSoggetto.contatto.trim(), note: "", ...firma() };
+    onSalva({ ...finanze, soggetti: [...soggetti, s] });
+    log("ha aggiunto in anagrafica " + n);
+    setNuovoSoggetto({ nome: "", tipo: "persona", contatto: "" });
+    mostra("Aggiunto all'anagrafica");
+  };
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="stats" style={{ marginBottom: 14 }}>
+        <div className="stat ok"><b className="num">{euro(tot.prevRicavi)}</b><i>ricavi previsti</i></div>
+        <div className="stat bad"><b className="num">{euro(tot.prevCosti)}</b><i>costi previsti</i></div>
+        <div className={"stat " + (tot.saldoPrev >= 0 ? "ok" : "bad")}><b className="num">{euro(tot.saldoPrev)}</b><i>saldo previsto</i></div>
+        <div className="stat ok"><b className="num">{euro(tot.consRicavi)}</b><i>ricavi consuntivi</i></div>
+        <div className="stat bad"><b className="num">{euro(tot.consCosti)}</b><i>costi consuntivi</i></div>
+        <div className={"stat " + (tot.saldoCons >= 0 ? "ok" : "bad")}><b className="num">{euro(tot.saldoCons)}</b><i>saldo consuntivo</i></div>
+        <div className={"stat " + (tot.daConsuntivare > 0 ? "warn" : "")}><b className="num">{tot.daConsuntivare}</b><i>da consuntivare</i></div>
+      </div>
+
+      <div className="segcaps">
+        <button className={sotto === "voci" ? "on" : ""} onClick={() => setSotto("voci")}>Costi & ricavi</button>
+        <button className={sotto === "anagrafica" ? "on" : ""} onClick={() => setSotto("anagrafica")}>Anagrafica</button>
+      </div>
+
+      {sotto === "voci" && (
+        <div className="panel">
+          <div className="filtri">
+            {[["tutte", "Tutte"], ["ricavo", "Ricavi"], ["costo", "Costi"], ["daconsuntivare", "Da consuntivare"]].map(([k, l]) => (
+              <button key={k} className={"chip" + (filtro === k ? " on" : "")} onClick={() => setFiltro(k)}>{l}</button>
+            ))}
+          </div>
+          <div className="row" style={{ marginBottom: 10 }}>
+            <button className="btn sm" onClick={() => setModaleVoce({})}>+ Voce</button>
+          </div>
+          {listaVoci.length === 0 && <p className="hint">Nessuna voce. Aggiungine una con "+ Voce".</p>}
+          {listaVoci.length > 0 && (
+            <table className="tab-cards">
+              <thead><tr><th>Voce</th><th>Soggetto</th><th>Preventivo</th><th>Consuntivo</th></tr></thead>
+              <tbody>
+                {listaVoci.map(v => (
+                  <tr key={v.id} className="fin-riga" onClick={() => setModaleVoce(v)}>
+                    <td data-label="Voce">
+                      <span className={"tag " + (v.tipo === "ricavo" ? "ricavo" : "costo")}>{v.tipo === "ricavo" ? "ricavo" : "costo"}</span>
+                      <div className="fin-cat">{v.voce}</div>
+                      {v.data && <div className="fin-sub">{v.data}</div>}
+                    </td>
+                    <td data-label="Soggetto">{nomeSoggetto(v.soggetto)}</td>
+                    <td data-label="Preventivo" className="num">{euro(v.preventivo)}</td>
+                    <td data-label="Consuntivo" className="num">
+                      {(v.consuntivo === null || v.consuntivo === undefined) ? <span className="imp muted">—</span> : euro(v.consuntivo)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {sotto === "anagrafica" && (
+        <div className="panel">
+          <p className="hint">Chi incassa o paga per conto dell'associazione: persone, fornitori, enti. Collegali alle voci di costo/ricavo qui sopra.</p>
+          {soggetti.length > 0 && (
+            <table className="tab-cards">
+              <thead><tr><th>Nome</th><th>Tipo</th><th>Contatto</th><th></th></tr></thead>
+              <tbody>
+                {soggetti.map(s => (
+                  <tr key={s.id}>
+                    <td data-label="Nome">
+                      <input value={s.nome} onChange={e => patchSoggetto(s.id, { nome: e.target.value })}
+                        onBlur={() => log("ha aggiornato l'anagrafica di " + s.nome)} /></td>
+                    <td data-label="Tipo">
+                      <select value={s.tipo} onChange={e => patchSoggetto(s.id, { tipo: e.target.value }, "ha aggiornato l'anagrafica di " + s.nome)}>
+                        {TIPI_SOGGETTO.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                      </select></td>
+                    <td data-label="Contatto">
+                      <input value={s.contatto || ""} placeholder="telefono, email…"
+                        onChange={e => patchSoggetto(s.id, { contatto: e.target.value })}
+                        onBlur={() => log("ha aggiornato l'anagrafica di " + s.nome)} /></td>
+                    <td><button className="btn ghost sm" onClick={() => eliminaSoggetto(s.id)}>Elimina</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {soggetti.length === 0 && <p className="hint">Ancora nessuno in anagrafica.</p>}
+          <div className="row" style={{ marginTop: 12, alignItems: "flex-end" }}>
+            <div className="field"><label>Nome</label>
+              <input value={nuovoSoggetto.nome} onChange={e => setNuovoSoggetto(p => ({ ...p, nome: e.target.value }))}
+                onKeyDown={e => e.key === "Enter" && aggiungiSoggetto()} placeholder="Es. Mario Rossi" /></div>
+            <div className="field" style={{ maxWidth: 170 }}><label>Tipo</label>
+              <select value={nuovoSoggetto.tipo} onChange={e => setNuovoSoggetto(p => ({ ...p, tipo: e.target.value }))}>
+                {TIPI_SOGGETTO.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select></div>
+            <div className="field"><label>Contatto</label>
+              <input value={nuovoSoggetto.contatto} onChange={e => setNuovoSoggetto(p => ({ ...p, contatto: e.target.value }))}
+                onKeyDown={e => e.key === "Enter" && aggiungiSoggetto()} placeholder="telefono, email…" /></div>
+            <button className="btn sm" onClick={aggiungiSoggetto}>Aggiungi</button>
+          </div>
+        </div>
+      )}
+
+      {modaleVoce && (
+        <ModaleVoce dati={modaleVoce} soggetti={soggetti}
+          onChiudi={() => setModaleVoce(null)} onSalva={salvaVoce} onElimina={eliminaVoce} />
+      )}
+    </div>
+  );
+}
+
+/* ---------- Modale voce costo/ricavo ---------- */
+function ModaleVoce({ dati, soggetti, onSalva, onElimina, onChiudi }) {
+  const [f, setF] = useState(() => ({
+    tipo: "costo", voce: "", soggetto: "", preventivo: 0, consuntivo: "", data: "", note: "",
+    ...dati,
+    consuntivo: (dati && dati.consuntivo != null) ? dati.consuntivo : ""
+  }));
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  return (
+    <div className="overlay" onClick={onChiudi}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h3>{f.id ? "Modifica voce" : "Nuova voce"}</h3>
+        <div className="row">
+          <div className="field"><label>Tipo</label>
+            <select value={f.tipo} onChange={e => set("tipo", e.target.value)}>
+              <option value="costo">Costo</option><option value="ricavo">Ricavo</option>
+            </select></div>
+          <div className="field"><label>Soggetto</label>
+            <select value={f.soggetto} onChange={e => set("soggetto", e.target.value)}>
+              <option value="">—</option>
+              {soggetti.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select></div>
+        </div>
+        <div className="field"><label>Voce</label>
+          <input autoFocus value={f.voce} onChange={e => set("voce", e.target.value)} placeholder="Es. Service audio, Biglietteria, SIAE…" /></div>
+        <div className="row">
+          <div className="field"><label>Preventivo (€)</label>
+            <input type="number" step="0.01" min="0" value={f.preventivo} onChange={e => set("preventivo", e.target.value)} /></div>
+          <div className="field"><label>Consuntivo (€)</label>
+            <input type="number" step="0.01" min="0" value={f.consuntivo} onChange={e => set("consuntivo", e.target.value)} placeholder="non ancora" /></div>
+          <div className="field"><label>Data</label>
+            <input type="date" value={f.data || ""} onChange={e => set("data", e.target.value)} /></div>
+        </div>
+        <div className="field"><label>Note</label>
+          <textarea value={f.note} onChange={e => set("note", e.target.value)} /></div>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn" onClick={() => {
+            if (!f.voce.trim()) return;
+            onSalva({
+              ...f, voce: f.voce.trim(),
+              preventivo: parseFloat(f.preventivo) || 0,
+              consuntivo: (f.consuntivo === "" || f.consuntivo === null || f.consuntivo === undefined) ? null : (parseFloat(f.consuntivo) || 0),
+              creata: f.creata || Date.now()
+            });
+          }}>Salva</button>
+          <button className="btn ghost" onClick={onChiudi}>Annulla</button>
+        </div>
+        {f.id && <button className="btn danger block sm" style={{ marginTop: 8 }}
+          onClick={() => { if (confirm("Eliminare la voce \"" + f.voce + "\"?")) onElimina(f.id); }}>Elimina voce</button>}
+      </div>
     </div>
   );
 }
