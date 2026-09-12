@@ -110,6 +110,20 @@
   textarea{resize:vertical;min-height:54px}
   .row{display:flex;gap:8px}
   .row>*{flex:1;margin-bottom:0}
+  .stepper{display:flex;align-items:center;gap:6px}
+  .stepper input{flex:1;min-width:0;text-align:center;-moz-appearance:textfield}
+  .stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .stepper button{
+    flex:0 0 36px;width:36px;height:36px;border:1px solid var(--line);border-radius:8px;
+    background:var(--ink);color:var(--text);font-size:17px;line-height:1;font-weight:600;
+  }
+  .stepper button:hover{border-color:var(--amber);color:var(--amber)}
+  input[type=checkbox]{width:auto;accent-color:var(--amber)}
+  .sez-perm{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+  .sez-perm-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer}
+  .chip-perm{border:1px solid var(--line);border-radius:999px;padding:5px 11px;font-size:12px;color:var(--muted)}
+  .chip-perm.on{border-color:var(--amber);color:var(--amber)}
   .btn{background:var(--amber);color:#231703;border-radius:8px;padding:10px 14px;font-weight:600;transition:.15s}
   .btn:hover{filter:brightness(1.08)}
   .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
@@ -389,6 +403,22 @@ const LS_UTENTE = "festivalfabbrico_utente";
 const norm = (s) => (s || "").trim().toLowerCase();
 const quando = (ts) => ts ? new Date(ts).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
 
+/* ---------- Sezioni dell'app e visibilità ----------
+   Ogni sezione può essere resa "riservata": la vedono solo l'admin
+   e gli utenti autorizzati uno per uno dalle Impostazioni.
+   Le Impostazioni (utenti, permessi, registro attività) restano
+   sempre e solo dell'admin: non sono delegabili.                */
+const SEZIONI = [
+  { k: "piantina", l: "Piantina", nav: "Sala" },
+  { k: "registro", l: "Registro", nav: "Registro" },
+  { k: "servizio", l: "Servizio & cucina", nav: "Cucina" },
+  { k: "manodopera", l: "Manodopera", nav: "Staff" },
+  { k: "mappa", l: "Area", nav: "Area" },
+  { k: "finanze", l: "Costi & Ricavi", nav: "Costi" },
+  { k: "impostazioni", l: "Impostazioni", nav: "Impostazioni", soloAdmin: true }
+];
+const PERMESSI_DEFAULT = { finanze: { riservata: true, utenti: [] } };
+
 /* =========================================================
    3) MAPPA DELL'AREA
    ========================================================= */
@@ -478,6 +508,7 @@ function useDati() {
   const [sfondoMappa, setSfondoMappa] = useState("");
   const [manodopera, setManodopera] = useState({ aree: [] });
   const [finanze, setFinanze] = useState({ voci: [], soggetti: [] });
+  const [permessi, setPermessi] = useState(PERMESSI_DEFAULT);
   const [pronto, setPronto] = useState(false);
 
   useEffect(() => {
@@ -514,7 +545,12 @@ function useDati() {
         const v = d.data();
         setFinanze({ voci: (v && v.voci) || [], soggetti: (v && v.soggetti) || [] });
       });
-      return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); };
+      const u9 = db.collection("impostazioni").doc("permessi").onSnapshot(d => {
+        const v = d.data();
+        if (v && v.sezioni) setPermessi(v.sezioni);
+        else db.collection("impostazioni").doc("permessi").set({ sezioni: PERMESSI_DEFAULT });
+      });
+      return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); };
     }
     const l = leggiLocale();
     setPren(l.prenotazioni || []);
@@ -526,10 +562,11 @@ function useDati() {
     setSfondoMappa(l.sfondoMappa || "");
     setManodopera(l.manodopera || { aree: [] });
     setFinanze(l.finanze || { voci: [], soggetti: [] });
+    setPermessi(l.permessi || PERMESSI_DEFAULT);
     setPronto(true);
   }, []);
 
-  const salvaLocale = (extra) => scriviLocale({ prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera, finanze, ...extra });
+  const salvaLocale = (extra) => scriviLocale({ prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera, finanze, permessi, ...extra });
 
   const salvaPren = useCallback((p) => {
     const dati = { ...p, ...firma() };
@@ -593,13 +630,19 @@ function useDati() {
     salvaLocale({ finanze: next });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera]);
 
+  const salvaPermessi = useCallback((sezioni) => {
+    setPermessi(sezioni);
+    if (db) return db.collection("impostazioni").doc("permessi").set({ sezioni });
+    salvaLocale({ permessi: sezioni });
+  }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera, finanze]);
+
   const log = useCallback((azione) => {
     const voce = { utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.nome : "?", azione, ts: Date.now() };
     if (db) { db.collection("attivita").add(voce).catch(e => console.error(e)); return; }
     setAttivita(prev => { const next = [voce, ...prev].slice(0, 200); salvaLocale({ attivita: next }); return next; });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
 
-  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, salvaManodopera, manodopera, finanze, salvaFinanze, log, cloud: !!db };
+  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, salvaManodopera, manodopera, finanze, salvaFinanze, permessi, salvaPermessi, log, cloud: !!db };
 }
 
 /* =========================================================
@@ -804,7 +847,28 @@ function App() {
 
   if (!D.pronto) return <div style={{ padding: 40 }} className="hint">Carico…</div>;
   if (!utente) return <Login utenti={D.utenti} onEntra={entra} />;
-  const vistaOk = ((vista === "impostazioni" || vista === "finanze") && !isAdmin) ? "piantina" : vista;
+
+  const puoVedere = (k) => {
+    const s = SEZIONI.find(x => x.k === k);
+    if (!s) return false;
+    if (s.soloAdmin) return isAdmin;
+    if (isAdmin) return true;
+    const p = D.permessi[k];
+    if (!p || !p.riservata) return true;
+    return (p.utenti || []).some(n => norm(n) === norm(utente.nome));
+  };
+  const sezioniVisibili = SEZIONI.filter(s => puoVedere(s.k));
+  const vistaOk = puoVedere(vista) ? vista : (sezioniVisibili[0] ? sezioniVisibili[0].k : null);
+
+  if (!vistaOk) return (
+    <div className="app" style={{ padding: 40 }}>
+      <h1 className="brand">Festival <span>Fabbrico</span></h1>
+      <p className="hint" style={{ marginTop: 12 }}>
+        Ciao <b>{utente.nome}</b>: al momento non hai accesso a nessuna sezione. Chiedi all'admin di abilitarti.
+      </p>
+      <button className="btn ghost sm" style={{ marginTop: 14 }} onClick={esci}>Esci</button>
+    </div>
+  );
 
   return (
     <div className="app">
@@ -823,11 +887,9 @@ function App() {
         </div>
         <div className="top-row" style={{ marginTop: 8 }}>
           <div className="tabs">
-            {[["piantina", "Piantina"], ["registro", "Registro"], ["servizio", "Servizio & cucina"], ["manodopera", "Manodopera"], ["mappa", "Area"]]
-              .concat(isAdmin ? [["finanze", "Costi & Ricavi"], ["impostazioni", "Impostazioni"]] : [])
-              .map(([k, l]) => (
-                <button key={k} className={"tab" + (vistaOk === k ? " on" : "")} onClick={() => setVista(k)}>{l}</button>
-              ))}
+            {sezioniVisibili.map(s => (
+              <button key={s.k} className={"tab" + (vistaOk === s.k ? " on" : "")} onClick={() => setVista(s.k)}>{s.l}</button>
+            ))}
           </div>
           <div className="spacer" />
           <div className="cloud">
@@ -1079,6 +1141,16 @@ function App() {
           </div>
 
           <div className="panel">
+            <h2>Sezioni riservate</h2>
+            <p className="hint">
+              Una sezione riservata la vedono solo tu e le persone che autorizzi qui sotto: per gli altri sparisce dal menu.
+              Le Impostazioni (utenti, permessi, registro attività) restano sempre solo tue.
+            </p>
+            <Permessi permessi={D.permessi} utenti={D.utenti}
+              onSalva={(next, azione) => { D.salvaPermessi(next); D.log(azione); mostra("Permessi aggiornati"); }} />
+          </div>
+
+          <div className="panel">
             <h2>Registro attività</h2>
             <p className="hint">Chi ha fatto cosa, dal più recente. {D.cloud ? "Ultime 150 azioni sincronizzate." : "Ultime 200 azioni su questo dispositivo."}</p>
             <div className="log-lista" style={{ marginTop: 10 }}>
@@ -1095,11 +1167,9 @@ function App() {
 
       {/* ---------- Navigazione telefono ---------- */}
       <nav className="bottom-nav no-print">
-        {[["piantina", "Sala"], ["registro", "Registro"], ["servizio", "Cucina"], ["manodopera", "Staff"], ["mappa", "Area"]]
-          .concat(isAdmin ? [["finanze", "Costi"], ["impostazioni", "Impostazioni"]] : [])
-          .map(([k, l]) => (
-            <button key={k} className={vistaOk === k ? "on" : ""} onClick={() => setVista(k)}>{l}</button>
-          ))}
+        {sezioniVisibili.map(s => (
+          <button key={s.k} className={vistaOk === s.k ? "on" : ""} onClick={() => setVista(s.k)}>{s.nav}</button>
+        ))}
       </nav>
 
       {/* ---------- Modali ---------- */}
@@ -1938,6 +2008,52 @@ function ModaleVoce({ dati, soggetti, onSalva, onElimina, onChiudi }) {
   );
 }
 
+/* ---------- Sezioni riservate (solo admin) ---------- */
+function Permessi({ permessi, utenti, onSalva }) {
+  const staff = (utenti || []).filter(u => norm(u.nome) !== ADMIN_USER && u.ruolo !== "admin");
+  const set = (k, val, azione) => onSalva({ ...permessi, [k]: val }, azione);
+  return (
+    <div style={{ marginTop: 10 }}>
+      {SEZIONI.filter(s => !s.soloAdmin).map(s => {
+        const p = permessi[s.k] || { riservata: false, utenti: [] };
+        const aut = p.utenti || [];
+        return (
+          <div key={s.k} className="sez-perm">
+            <div className="sez-perm-top">
+              <b>{s.l}</b>
+              <label className="check">
+                <input type="checkbox" checked={!!p.riservata}
+                  onChange={e => set(s.k, { ...p, riservata: e.target.checked, utenti: aut },
+                    (e.target.checked ? "ha reso riservata la sezione " : "ha reso libera la sezione ") + s.l)} />
+                Riservata
+              </label>
+            </div>
+            {p.riservata && (
+              <div>
+                <p className="hint" style={{ marginTop: 6 }}>Oltre a te, possono entrare:</p>
+                <div className="persone">
+                  {staff.length === 0 && <span className="hint">Nessun utente staff ancora creato.</span>}
+                  {staff.map(u => {
+                    const on = aut.some(n => norm(n) === norm(u.nome));
+                    return (
+                      <button key={u.nome} className={"chip-perm" + (on ? " on" : "")}
+                        onClick={() => set(s.k,
+                          { ...p, utenti: on ? aut.filter(n => norm(n) !== norm(u.nome)) : [...aut, u.nome] },
+                          (on ? "ha tolto a " : "ha dato a ") + u.nome + " l'accesso a " + s.l)}>
+                        {u.nome}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ---------- Modale prenotazione ---------- */
 function ModalePren({ dati, onSalva, onElimina, onChiudi }) {
   const [f, setF] = useState({
@@ -1952,7 +2068,21 @@ function ModalePren({ dati, onSalva, onElimina, onChiudi }) {
           <input autoFocus value={f.nome} onChange={e => set("nome", e.target.value)} placeholder="Es. Fam. Rossi" /></div>
         <div className="row">
           <div className="field"><label>N. persone</label>
-            <input type="number" min="1" value={f.pax} onChange={e => set("pax", parseInt(e.target.value) || 1)} /></div>
+            <div className="stepper">
+              <button type="button" aria-label="Meno una persona"
+                onClick={() => set("pax", Math.max(1, (parseInt(f.pax, 10) || 1) - 1))}>–</button>
+              <input type="number" inputMode="numeric" min="1" max="999" value={f.pax}
+                onFocus={e => e.target.select()}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (v === "") return set("pax", "");
+                  const n = parseInt(v, 10);
+                  set("pax", isNaN(n) ? "" : Math.min(999, Math.max(0, n)));
+                }}
+                onBlur={() => set("pax", Math.max(1, parseInt(f.pax, 10) || 1))} />
+              <button type="button" aria-label="Più una persona"
+                onClick={() => set("pax", Math.min(999, (parseInt(f.pax, 10) || 0) + 1))}>+</button>
+            </div></div>
           <div className="field"><label>Orario</label>
             <input type="time" value={f.orario || ""} onChange={e => set("orario", e.target.value)} /></div>
           <div className="field"><label>Telefono</label>
@@ -1967,7 +2097,7 @@ function ModalePren({ dati, onSalva, onElimina, onChiudi }) {
         <div className="field"><label>Note (allergie, bambini, seggioloni…)</label>
           <textarea value={f.note} onChange={e => set("note", e.target.value)} /></div>
         <div className="row" style={{ marginTop: 12 }}>
-          <button className="btn" onClick={() => { if (!f.nome.trim()) return; onSalva({ ...f, nome: f.nome.trim(), creata: f.creata || Date.now() }); }}>Salva</button>
+          <button className="btn" onClick={() => { if (!f.nome.trim()) return; onSalva({ ...f, nome: f.nome.trim(), pax: Math.min(999, Math.max(1, parseInt(f.pax, 10) || 1)), creata: f.creata || Date.now() }); }}>Salva</button>
           <button className="btn ghost" onClick={onChiudi}>Annulla</button>
         </div>
         {f.id && <button className="btn danger block sm" style={{ marginTop: 8 }}
