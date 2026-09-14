@@ -832,6 +832,189 @@ function App() {
     D.log((nuovo === "arrivata" ? "ha segnato arrivata " : "ha annullato l'arrivo di ") + p.nome);
   };
 
+
+  /* --- Export PDF: prenotati + piantina tavoli ---
+     modo = "sintetico" (una riga per prenotazione) | "completo" (scheda per prenotazione) */
+  const esportaPdf = (modo) => {
+    if (!window.jspdf || !window.jspdf.jsPDF) return mostra("Libreria PDF non disponibile");
+    const completo = modo === "completo";
+    const pdf = new window.jspdf.jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const PW = pdf.internal.pageSize.getWidth(), PH = pdf.internal.pageSize.getHeight(), M = 12;
+    const oggi = new Date().toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const elenco = D.prenotazioni.slice().sort((a, b) =>
+      (a.orario || "99:99").localeCompare(b.orario || "99:99") || (a.nome || "").localeCompare(b.nome || ""));
+    const sotto = "Stampato il " + oggi + " · " + elenco.length + " prenotazioni · " +
+      totali.prenotati + " coperti · " + totali.seduti + " seduti · " + totali.daSedere + " da sedere";
+    const tavoliDi = (p) => (p.assegnazioni || []).map(a => a.tavolo + "(" + a.posti + ")").join(" ") || "—";
+    let y = 0;
+
+    const intestazione = (titolo) => {
+      y = M;
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(16); pdf.setTextColor(20);
+      pdf.text(titolo, M, y); y += 6;
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(115);
+      pdf.text(sotto, M, y); y += 3.5;
+      pdf.setDrawColor(190); pdf.line(M, y, PW - M, y); y += 6;
+    };
+
+    /* ---- colonne modalità sintetica ---- */
+    const CX = { nome: M, pax: 92, ora: 96, tav: 116, tel: 152, stato: 178 };
+    const testataColonne = () => {
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(7.5); pdf.setTextColor(125);
+      pdf.text("NOME", CX.nome, y);
+      pdf.text("PERS.", CX.pax, y, { align: "right" });
+      pdf.text("ORARIO", CX.ora, y);
+      pdf.text("TAVOLI", CX.tav, y);
+      pdf.text("TELEFONO", CX.tel, y);
+      pdf.text("STATO", CX.stato, y);
+      y += 2; pdf.setDrawColor(215); pdf.line(M, y, PW - M, y); y += 4.5;
+    };
+
+    const spazio = (h) => {
+      if (y + h <= PH - 14) return;
+      pdf.addPage();
+      intestazione("Prenotazioni — " + (completo ? "dettaglio completo" : "elenco sintetico"));
+      if (!completo) testataColonne();
+    };
+
+    intestazione("Festival Fabbrico — Prenotazioni");
+    if (!completo) testataColonne();
+
+    if (elenco.length === 0) {
+      pdf.setFontSize(10); pdf.setTextColor(120);
+      pdf.text("Nessuna prenotazione registrata.", M, y); y += 8;
+    }
+
+    elenco.forEach((p, i) => {
+      const annullata = p.stato === "annullata";
+      if (!completo) {
+        spazio(7);
+        if (i % 2 === 1) { pdf.setFillColor(246, 244, 240); pdf.rect(M, y - 3.6, PW - 2 * M, 6, "F"); }
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(9); pdf.setTextColor(annullata ? 150 : 25);
+        const nome = (p.nome || "") + (p.walkIn ? " (walk-in)" : "");
+        pdf.text(pdf.splitTextToSize(nome, 76)[0], CX.nome, y);
+        pdf.setFont("helvetica", "normal"); pdf.setTextColor(annullata ? 150 : 40);
+        pdf.text(String(p.pax || 0), CX.pax, y, { align: "right" });
+        pdf.text(p.orario || "—", CX.ora, y);
+        pdf.setFontSize(8);
+        pdf.text(pdf.splitTextToSize(tavoliDi(p), 34)[0], CX.tav, y);
+        pdf.text(pdf.splitTextToSize(p.telefono || "—", 24)[0], CX.tel, y);
+        pdf.setTextColor(annullata ? 150 : (p.stato === "arrivata" ? 25 : 120));
+        pdf.text(p.stato === "arrivata" ? "arrivata" : (annullata ? "annullata" : "in attesa"), CX.stato, y);
+        y += 6;
+        return;
+      }
+
+      /* ---- scheda completa ---- */
+      const note = (p.note || "").trim();
+      const righeNote = note ? pdf.splitTextToSize("Note: " + note, PW - 2 * M - 4) : [];
+      spazio(16 + righeNote.length * 4);
+      pdf.setFillColor(annullata ? 244 : 249, annullata ? 244 : 246, annullata ? 244 : 240);
+      const hBlocco = 13.5 + righeNote.length * 4;
+      pdf.rect(M, y - 4.5, PW - 2 * M, hBlocco, "F");
+
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.setTextColor(annullata ? 150 : 20);
+      pdf.text((p.nome || "") + (p.walkIn ? "  (walk-in)" : ""), M + 2.5, y);
+      pdf.setFontSize(10);
+      pdf.text((p.pax || 0) + " pers." + (p.orario ? "  ·  ore " + p.orario : ""), PW - M - 2.5, y, { align: "right" });
+      y += 5;
+
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(90);
+      const resta = daSedere(p);
+      pdf.text("Tavoli: " + tavoliDi(p) + "   ·   Seduti: " + postiAssegnati(p) + "/" + (p.pax || 0) +
+        (resta > 0 && !annullata ? "  (da sedere " + resta + ")" : ""), M + 2.5, y);
+      pdf.text("Stato: " + (p.stato || "attesa"), PW - M - 2.5, y, { align: "right" });
+      y += 4.2;
+      pdf.text("Telefono: " + (p.telefono || "—") +
+        (p.modificatoDa ? "   ·   Ultima modifica: " + p.modificatoDa + " (" + quando(p.modificatoIl) + ")" : ""), M + 2.5, y);
+      y += 4.2;
+      if (righeNote.length) {
+        pdf.setTextColor(60);
+        righeNote.forEach(r => { pdf.text(r, M + 2.5, y); y += 4; });
+      }
+      pdf.setDrawColor(225); pdf.line(M, y - 2.5, PW - M, y - 2.5);
+      y += 4;
+    });
+
+    /* ---- pagina piantina tavoli ---- */
+    pdf.addPage("a4", "landscape");
+    const LW = pdf.internal.pageSize.getWidth(), LH = pdf.internal.pageSize.getHeight(), LM = 10;
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(15); pdf.setTextColor(20);
+    pdf.text("Piantina tavoli", LM, LM + 4);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(115);
+    pdf.text(totali.posti + " posti totali · " + totali.seduti + " occupati · " + totali.liberi + " liberi · aggiornata al " + oggi,
+      LM, LM + 9);
+
+    const geo = (t) => {
+      const perLato = Math.ceil(t.posti / 2);
+      const lung = 30 + perLato * 30;
+      const orizz = t.orient !== "v";
+      return { w: orizz ? lung : 96, h: orizz ? 96 : lung };
+    };
+    const tav = D.tavoli || [];
+    if (tav.length === 0) {
+      pdf.setFontSize(10); pdf.setTextColor(120);
+      pdf.text("Nessun tavolo sulla piantina.", LM, LM + 20);
+    } else {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      tav.forEach(t => {
+        const g = geo(t);
+        x0 = Math.min(x0, t.x); y0 = Math.min(y0, t.y);
+        x1 = Math.max(x1, t.x + g.w); y1 = Math.max(y1, t.y + g.h);
+      });
+      const top = LM + 14, bottom = LH - LM - 8;
+      const s = Math.min((LW - 2 * LM) / (x1 - x0), (bottom - top) / (y1 - y0));
+      const offX = LM + ((LW - 2 * LM) - (x1 - x0) * s) / 2;
+      const offY = top + ((bottom - top) - (y1 - y0) * s) / 2;
+      const px = (v) => offX + (v - x0) * s;
+      const py = (v) => offY + (v - y0) * s;
+
+      tav.forEach(t => {
+        const g = geo(t);
+        const o = occ[t.id] || { posti: 0, ospiti: [] };
+        const pieno = o.posti >= t.posti, parziale = o.posti > 0 && !pieno;
+        const X = px(t.x), Y = py(t.y), W = g.w * s, H = g.h * s;
+        if (pieno) { pdf.setFillColor(243, 214, 160); pdf.setDrawColor(190, 140, 50); }
+        else if (parziale) { pdf.setFillColor(249, 238, 216); pdf.setDrawColor(205, 175, 120); }
+        else { pdf.setFillColor(252, 251, 249); pdf.setDrawColor(200, 195, 185); }
+        pdf.setLineWidth(0.3);
+        pdf.roundedRect(X, Y, W, H, 1.2, 1.2, "FD");
+
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(7.5); pdf.setTextColor(35);
+        pdf.text(String(t.nome), X + 1.6, Y + 4.4);
+        pdf.text(o.posti + "/" + t.posti, X + W - 1.6, Y + 4.4, { align: "right" });
+
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(5.8); pdf.setTextColor(70);
+        let ty = Y + 8;
+        o.ospiti.slice(0, 4).forEach(osp => {
+          if (ty > Y + H - 1.5) return;
+          const riga = (osp.arrivata ? "\u2022 " : "o ") + osp.nome + " " + osp.posti;
+          pdf.text(pdf.splitTextToSize(riga, W - 3)[0], X + 1.6, ty);
+          ty += 3;
+        });
+        if (o.ospiti.length > 4 && ty <= Y + H - 1.5) pdf.text("+" + (o.ospiti.length - 4) + " altri", X + 1.6, ty);
+      });
+
+      pdf.setFontSize(7.5); pdf.setTextColor(120);
+      pdf.text("\u2022 arrivata   o in attesa   ·   tavolo pieno = riquadro ambrato, parziale = chiaro, libero = bianco",
+        LM, LH - LM - 1);
+    }
+
+    /* ---- numeri di pagina ---- */
+    const n = pdf.internal.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+      pdf.setPage(i);
+      const w = pdf.internal.pageSize.getWidth(), h = pdf.internal.pageSize.getHeight();
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(7.5); pdf.setTextColor(155);
+      pdf.text("Festival Fabbrico", 12, h - 6);
+      pdf.text("Pagina " + i + " di " + n, w - 12, h - 6, { align: "right" });
+    }
+
+    pdf.save("prenotazioni-festival-" + (completo ? "completo" : "sintetico") + ".pdf");
+    D.log("ha esportato il PDF " + (completo ? "completo" : "sintetico") + " di prenotazioni e piantina");
+    mostra("PDF esportato");
+  };
+
   const esportaCsv = () => {
     const righe = [["Nome", "Persone", "Orario", "Tavoli", "Telefono", "Stato", "Note"]];
     D.prenotazioni.forEach(p => righe.push([
@@ -1017,6 +1200,8 @@ function App() {
             <div className="spacer" />
             <button className="btn sm" onClick={() => setModale({ tipo: "pren", dati: {} })}>+ Prenotazione</button>
             <button className="btn ghost sm" onClick={() => setModale({ tipo: "incolla" })}>Incolla elenco</button>
+            <button className="btn ghost sm" onClick={() => esportaPdf("sintetico")}>PDF sintetico</button>
+            <button className="btn ghost sm" onClick={() => esportaPdf("completo")}>PDF completo</button>
             <button className="btn ghost sm" onClick={esportaCsv}>Esporta CSV</button>
             <button className="btn ghost sm" onClick={() => window.print()}>Stampa</button>
           </div>
@@ -1121,6 +1306,8 @@ function App() {
               Tavoli: <b className="num">{D.tavoli.length}</b> · Posti totali: <b className="num">{totali.posti}</b> · Prenotazioni: <b className="num">{D.prenotazioni.length}</b>
             </p>
             <div className="row" style={{ marginTop: 10 }}>
+              <button className="btn ghost sm" onClick={() => esportaPdf("sintetico")}>PDF sintetico</button>
+              <button className="btn ghost sm" onClick={() => esportaPdf("completo")}>PDF completo</button>
               <button className="btn ghost sm" onClick={esportaCsv}>Esporta prenotazioni CSV</button>
               <button className="btn ghost sm" onClick={() => {
                 const dati = { tavoli: D.tavoli, prenotazioni: D.prenotazioni };
