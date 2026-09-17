@@ -266,6 +266,42 @@
   .persona button{color:var(--muted);font-size:16px;line-height:1;padding:0 5px}
   .persona button:hover{color:var(--rosso)}
   .add-persona{width:160px;border-radius:99px;border-style:dashed;padding:7px 13px;font-size:13px}
+  .persone-lista{display:flex;flex-direction:column;gap:6px;margin-top:9px}
+  .persona-riga{display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:5px 6px 5px 11px;flex-wrap:wrap}
+  .persona-riga.senza-ora{border-color:rgba(228,91,109,.45)}
+  .persona-riga.aggiungi{background:transparent;border:none;padding:0;gap:10px}
+  .persona-nome{flex:1;min-width:90px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .orario-mini{width:108px;flex:0 0 auto;padding:5px 7px;font-family:"IBM Plex Mono",monospace;font-size:12px;border-radius:7px;color-scheme:dark}
+  .turno-sep{color:var(--muted);font-size:12px}
+  .persona-riga .togli{color:var(--muted);font-size:17px;line-height:1;padding:0 6px}
+  .persona-riga .togli:hover{color:var(--rosso)}
+  .turno-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:9px 12px;margin-bottom:12px}
+  .turno-lab{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .turno-bar .hint{flex:1;min-width:190px}
+  .fasce-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .fascia{border:1px solid var(--line);border-radius:10px;margin-bottom:9px;overflow:hidden}
+  .fascia-ora{display:flex;align-items:baseline;gap:10px;padding:7px 11px;background:var(--surface-2);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .fascia-ora b{font-size:14px}
+  .fascia-ora span{font-size:11px;color:var(--muted)}
+  .fascia-ora span.ko{color:var(--rosso)}
+  .fascia-ora span.ok{color:var(--verde)}
+  .fascia-area{display:flex;gap:9px;padding:8px 11px;border-bottom:1px solid var(--line);align-items:flex-start}
+  .fascia-area:last-child{border-bottom:none}
+  .fascia-pill{flex:0 0 auto;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:700}
+  .fascia-mansioni{flex:1;display:flex;flex-direction:column;gap:4px;min-width:0}
+  .fascia-mans{display:grid;grid-template-columns:132px 52px 1fr;gap:8px;align-items:baseline;font-size:12px}
+  .fascia-mans-nome{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fascia-conta{font-family:"IBM Plex Mono",monospace;font-size:11px}
+  .fascia-conta.ko{color:var(--rosso)}
+  .fascia-conta.ok{color:var(--verde)}
+  .fascia-nomi{color:var(--muted);min-width:0}
+  @media(max-width:760px){
+    .fascia-mans{grid-template-columns:1fr 48px;grid-template-areas:"n c" "p p"}
+    .fascia-mans-nome{grid-area:n}
+    .fascia-conta{grid-area:c;text-align:right}
+    .fascia-nomi{grid-area:p}
+    .orario-mini{width:96px}
+  }
   @media(max-width:760px){
     .intestazione{display:none}
     .mans-riga{grid-template-columns:1fr 1fr 1fr;gap:6px}
@@ -437,6 +473,28 @@ const COLORI = [
   { id: "bianco", bg: "#F3EFE7", testo: "#1A1822" }
 ];
 const colore = (id) => COLORI.find(c => c.id === id) || COLORI[0];
+
+/* ---------- Manodopera: orari di presenza ----------
+   Ogni persona assegnata a una mansione vale { nome, dalle, alle }.
+   I vecchi elenchi fatti di soli nomi continuano a funzionare:
+   restano senza orario finche' non lo inserisci. */
+const LS_TURNO = "festivalfabbrico_turno";
+const ORA_OK = (s) => /^\d{1,2}:\d{2}$/.test(s || "");
+/* le ore piccole (prima delle 5) sono la notte dopo: 01:00 viene dopo le 23:00 */
+const minuti = (s) => {
+  if (!ORA_OK(s)) return null;
+  const p = String(s).split(":");
+  const v = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+  return v < 300 ? v + 1440 : v;
+};
+const daMin = (v) => {
+  const x = ((v % 1440) + 1440) % 1440;
+  return String(Math.floor(x / 60)).padStart(2, "0") + ":" + String(x % 60).padStart(2, "0");
+};
+const personeDi = (m) => (m.persone || []).map(p => (typeof p === "string"
+  ? { nome: p, dalle: "", alle: "" }
+  : { nome: (p && p.nome) || "", dalle: (p && p.dalle) || "", alle: (p && p.alle) || "" }));
+const fasciaTxt = (p) => (p.dalle || p.alle) ? ((p.dalle || "\u2026") + "\u2013" + (p.alle || "\u2026")) : "";
 
 /* =========================================================
    3-bis) COSTI & RICAVI
@@ -1753,8 +1811,20 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
 /* ---------- Manodopera ---------- */
 function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
   const [nuovaArea, setNuovaArea] = useState("");
+  const [mostraFasce, setMostraFasce] = useState(true);
+  const [turno, setTurno] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(LS_TURNO) || "null");
+      return v && typeof v === "object" ? { dalle: v.dalle || "", alle: v.alle || "" } : { dalle: "", alle: "" };
+    } catch (e) { return { dalle: "", alle: "" }; }
+  });
+  const setTurnoDef = (patch) => {
+    const t = { ...turno, ...patch };
+    setTurno(t);
+    try { localStorage.setItem(LS_TURNO, JSON.stringify(t)); } catch (e) { }
+  };
 
-  const conta = (m) => ({ rich: m.richiesti || 0, pres: (m.persone || []).length });
+  const conta = (m) => ({ rich: m.richiesti || 0, pres: personeDi(m).length });
   const totArea = (a) => (a.mansioni || []).reduce((t, m) => {
     const c = conta(m); return { rich: t.rich + c.rich, pres: t.pres + c.pres };
   }, { rich: 0, pres: 0 });
@@ -1778,14 +1848,97 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
     patchArea(a.id, { mansioni: [...(a.mansioni || []), { id: uid(), nome: "Nuova mansione", richiesti: 1, persone: [] }] },
       "ha aggiunto una mansione in " + a.nome);
 
+  /* --- persone: sempre salvate come { nome, dalle, alle } --- */
   const aggiungiPersona = (a, m, nome) => {
     const n = (nome || "").trim(); if (!n) return;
-    if ((m.persone || []).some(p => p.toLowerCase() === n.toLowerCase())) return mostra(n + " è già in questa mansione");
-    patchMans(a.id, m.id, { persone: [...(m.persone || []), n] }, "ha assegnato " + n + " a " + m.nome + " (" + a.nome + ")");
+    const lista = personeDi(m);
+    const nuova = { nome: n, dalle: turno.dalle || "", alle: turno.alle || "" };
+    if (lista.some(p => p.nome.toLowerCase() === n.toLowerCase() && p.dalle === nuova.dalle && p.alle === nuova.alle))
+      return mostra(n + " è già in questa mansione con lo stesso orario");
+    const f = fasciaTxt(nuova);
+    patchMans(a.id, m.id, { persone: [...lista, nuova] },
+      "ha assegnato " + n + (f ? " (" + f + ")" : "") + " a " + m.nome + " · " + a.nome);
   };
 
-  const togliPersona = (a, m, nome) =>
-    patchMans(a.id, m.id, { persone: (m.persone || []).filter(p => p !== nome) }, "ha tolto " + nome + " da " + m.nome + " (" + a.nome + ")");
+  const togliPersona = (a, m, i) => {
+    const lista = personeDi(m);
+    const p = lista[i]; if (!p) return;
+    patchMans(a.id, m.id, { persone: lista.filter((x, j) => j !== i) },
+      "ha tolto " + p.nome + " da " + m.nome + " · " + a.nome);
+  };
+
+  const patchPersona = (a, m, i, patch, azione) =>
+    patchMans(a.id, m.id, { persone: personeDi(m).map((p, j) => (j === i ? { ...p, ...patch } : p)) }, azione);
+
+  /* riempie l'orario di chi non ce l'ha, con il turno predefinito */
+  const applicaTurno = (soloMans) => {
+    if (!ORA_OK(turno.dalle) || !ORA_OK(turno.alle)) return mostra("Imposta prima il turno predefinito qui sopra");
+    let tocchi = 0;
+    const next = aree.map(a => ({
+      ...a,
+      mansioni: (a.mansioni || []).map(m => {
+        if (soloMans && m.id !== soloMans.id) return m;
+        return {
+          ...m, persone: personeDi(m).map(p => {
+            if (ORA_OK(p.dalle) && ORA_OK(p.alle)) return p;
+            tocchi++; return { ...p, dalle: turno.dalle, alle: turno.alle };
+          })
+        };
+      })
+    }));
+    if (!tocchi) return mostra("Hanno già tutti un orario");
+    salva(next, "ha applicato il turno " + turno.dalle + "–" + turno.alle + " a " + tocchi + (tocchi === 1 ? " persona" : " persone"));
+    mostra("Orario applicato a " + tocchi + (tocchi === 1 ? " persona" : " persone"));
+  };
+
+  /* --- fasce orarie: chi è presente, dove e in che ruolo --- */
+  const piano = useMemo(() => {
+    const punti = new Set();
+    const senza = [];
+    aree.forEach(a => (a.mansioni || []).forEach(m => personeDi(m).forEach(p => {
+      const d = minuti(p.dalle), f = minuti(p.alle);
+      if (d === null || f === null || f <= d) senza.push({ area: a.nome, mans: m.nome, nome: p.nome });
+      else { punti.add(d); punti.add(f); }
+    })));
+    const ord = Array.from(punti).sort((x, y) => x - y);
+    const slot = [];
+    for (let i = 0; i < ord.length - 1; i++) {
+      const da = ord[i], al = ord[i + 1];
+      const gruppi = [];
+      let tot = 0, manca = 0;
+      aree.forEach(a => {
+        const mans = [];
+        (a.mansioni || []).forEach(m => {
+          const pres = personeDi(m).filter(p => {
+            const d = minuti(p.dalle), f = minuti(p.alle);
+            return d !== null && f !== null && d <= da && f >= al;
+          });
+          const rich = m.richiesti || 0;
+          if (pres.length || rich) {
+            mans.push({ m, pres, rich });
+            tot += pres.length;
+            manca += Math.max(0, rich - pres.length);
+          }
+        });
+        if (mans.length) gruppi.push({ area: a, mans });
+      });
+      slot.push({ da, al, gruppi, tot, manca });
+    }
+    return { slot, senza };
+  }, [aree]);
+
+  /* --- elenco per persona: il turno di ciascuno --- */
+  const perPersona = useMemo(() => {
+    const mappa = new Map();
+    aree.forEach(a => (a.mansioni || []).forEach(m => personeDi(m).forEach(p => {
+      const k = p.nome.trim().toLowerCase(); if (!k) return;
+      if (!mappa.has(k)) mappa.set(k, { nome: p.nome.trim(), turni: [] });
+      mappa.get(k).turni.push({ area: a.nome, mans: m.nome, dalle: p.dalle, alle: p.alle, ord: minuti(p.dalle) === null ? 99999 : minuti(p.dalle) });
+    })));
+    const l = Array.from(mappa.values());
+    l.forEach(x => x.turni.sort((u, v) => u.ord - v.ord));
+    return l.sort((x, y) => x.nome.localeCompare(y.nome, "it"));
+  }, [aree]);
 
   /* --- PDF --- */
   const esportaPDF = () => {
@@ -1795,32 +1948,37 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
     const M = 14, X = [M, M + 100, M + 126, M + 152];
     let y = M;
 
-    const intesta = () => {
-      pdf.setFont("helvetica", "bold"); pdf.setFontSize(17); pdf.setTextColor(20);
-      pdf.text("Festival Fabbrico — Manodopera", M, y); y += 7;
-      pdf.setFont("helvetica", "normal"); pdf.setFontSize(9.5); pdf.setTextColor(110);
-      pdf.text("Fabbisogno " + totale.rich + " persone · assegnate " + totale.pres +
-        " · mancano " + Math.max(0, totale.rich - totale.pres) +
-        "    (aggiornato al " + new Date().toLocaleString("it-IT") + ")", M, y);
-      y += 8;
-    };
     const nuovaPagina = () => { pdf.addPage(); y = M; };
     const spazio = (h) => { if (y + h > PH - M) nuovaPagina(); };
-
-    intesta();
-
-    aree.forEach(a => {
-      const t = totArea(a), manca = Math.max(0, t.rich - t.pres);
-      spazio(22);
-      const c = colore(a.colore);
+    const titolo = (t, sub) => {
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(17); pdf.setTextColor(20);
+      pdf.text(t, M, y); y += 7;
+      if (sub) {
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(9.5); pdf.setTextColor(110);
+        pdf.text(sub, M, y); y += 8;
+      } else y += 2;
+    };
+    const barra = (testo, destra, c) => {
       const hex = c.bg.replace("#", "");
       pdf.setFillColor(parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16));
       pdf.rect(M, y, PW - 2 * M, 9, "F");
       pdf.setTextColor(c.testo === "#FFFFFF" ? 255 : 30);
       pdf.setFont("helvetica", "bold"); pdf.setFontSize(11);
-      pdf.text(a.nome.toUpperCase(), M + 3, y + 6.2);
-      pdf.text(t.pres + "/" + t.rich + (manca ? "  —  mancano " + manca : "  —  completa"), PW - M - 3, y + 6.2, { align: "right" });
+      pdf.text(testo, M + 3, y + 6.2);
+      if (destra) pdf.text(destra, PW - M - 3, y + 6.2, { align: "right" });
       y += 12;
+    };
+
+    /* ---- 1) organico per area e mansione ---- */
+    titolo("Festival Fabbrico — Manodopera",
+      "Fabbisogno " + totale.rich + " persone · assegnate " + totale.pres +
+      " · mancano " + Math.max(0, totale.rich - totale.pres) +
+      "    (aggiornato al " + new Date().toLocaleString("it-IT") + ")");
+
+    aree.forEach(a => {
+      const t = totArea(a), manca = Math.max(0, t.rich - t.pres);
+      spazio(22);
+      barra(a.nome.toUpperCase(), t.pres + "/" + t.rich + (manca ? "  —  mancano " + manca : "  —  completa"), colore(a.colore));
 
       pdf.setTextColor(120); pdf.setFontSize(8);
       pdf.text("MANSIONE", X[0], y);
@@ -1829,7 +1987,10 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
 
       (a.mansioni || []).forEach(m => {
         const cc = conta(m), d = Math.max(0, cc.rich - cc.pres);
-        const persone = (m.persone || []).join(", ") || "—";
+        const lista = personeDi(m);
+        const persone = lista.length
+          ? lista.map(p => p.nome + (fasciaTxt(p) ? " (" + fasciaTxt(p) + ")" : " (orario da definire)")).join(", ")
+          : "—";
         const righe = pdf.splitTextToSize(persone, PW - 2 * M - 4);
         const h = 5.5 + righe.length * 4.2 + 3;
         spazio(h);
@@ -1852,6 +2013,70 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
 
     if (aree.length === 0) { pdf.setTextColor(120); pdf.setFontSize(10); pdf.text("Nessuna area inserita.", M, y); }
 
+    /* ---- 2) chi c'è, fascia per fascia ---- */
+    if (piano.slot.length > 0) {
+      nuovaPagina();
+      titolo("Turni — chi è presente e dove",
+        "Ogni blocco è una fascia oraria: per ciascuna postazione trovi la mansione, quante persone servono e chi c'è.");
+
+      piano.slot.forEach(s => {
+        spazio(26);
+        barra(daMin(s.da) + "  –  " + daMin(s.al),
+          s.tot + " in servizio" + (s.manca ? "  —  mancano " + s.manca : ""),
+          { bg: "#141319", testo: "#FFFFFF" });
+
+        s.gruppi.forEach(g => {
+          spazio(12);
+          pdf.setFont("helvetica", "bold"); pdf.setFontSize(9.5);
+          const c = colore(g.area.colore), hex = c.bg.replace("#", "");
+          pdf.setTextColor(parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16));
+          pdf.text(g.area.nome.toUpperCase(), M + 1, y); y += 4.4;
+
+          g.mans.forEach(x => {
+            const nomi = x.pres.map(p => p.nome).join(", ") || "nessuno";
+            const righe = pdf.splitTextToSize(nomi, PW - 2 * M - 56);
+            spazio(righe.length * 4.2 + 3);
+            pdf.setFont("helvetica", "bold"); pdf.setFontSize(9); pdf.setTextColor(40);
+            pdf.text(pdf.splitTextToSize(String(x.m.nome || ""), 43)[0] || "", M + 4, y);
+            if (x.pres.length < x.rich) pdf.setTextColor(200, 50, 60); else pdf.setTextColor(30, 150, 110);
+            pdf.text(x.pres.length + "/" + x.rich, M + 52, y, { align: "right" });
+            pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(90);
+            righe.forEach((r, i) => { pdf.text(r, M + 56, y + i * 4.2); });
+            y += Math.max(4.6, righe.length * 4.2 + 0.6);
+          });
+          y += 2;
+        });
+        y += 4;
+      });
+
+      if (piano.senza.length > 0) {
+        spazio(16);
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(9.5); pdf.setTextColor(200, 50, 60);
+        pdf.text("Senza orario (non compaiono nelle fasce qui sopra)", M, y); y += 5;
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(90);
+        const txt = piano.senza.map(s => s.nome + " — " + s.mans + " · " + s.area).join(" ; ");
+        pdf.splitTextToSize(txt, PW - 2 * M).forEach(r => { spazio(5); pdf.text(r, M, y); y += 4.2; });
+      }
+    }
+
+    /* ---- 3) il turno di ogni persona ---- */
+    if (perPersona.length > 0) {
+      nuovaPagina();
+      titolo("Elenco per persona", "Per ognuno: orario, mansione e postazione. Utile da leggere al briefing.");
+      perPersona.forEach(p => {
+        spazio(6 + p.turni.length * 4.4);
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(9.5); pdf.setTextColor(30);
+        pdf.text(p.nome, M, y); y += 4.4;
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(100);
+        p.turni.forEach(t => {
+          pdf.text((fasciaTxt(t) || "orario da definire") + "   ·   " + t.mans + "   ·   " + t.area, M + 4, y);
+          y += 4.2;
+        });
+        y += 1.6;
+        pdf.setDrawColor(238); pdf.line(M, y - 1.2, PW - M, y - 1.2);
+      });
+    }
+
     const n = pdf.internal.getNumberOfPages();
     for (let i = 1; i <= n; i++) {
       pdf.setPage(i); pdf.setFontSize(8); pdf.setTextColor(150);
@@ -1870,10 +2095,24 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
           <div className="stat ok"><b className="num">{totale.pres}</b><i>assegnati</i></div>
           <div className={"stat " + (totale.rich - totale.pres > 0 ? "bad" : "ok")}>
             <b className="num">{Math.max(0, totale.rich - totale.pres)}</b><i>mancano</i></div>
+          {piano.senza.length > 0 && (
+            <div className="stat bad"><b className="num">{piano.senza.length}</b><i>senza orario</i></div>
+          )}
         </div>
         <div className="spacer" />
         <button className="btn sm" onClick={esportaPDF}>Esporta PDF</button>
       </div>
+
+      {isAdmin && (
+        <div className="turno-bar no-print">
+          <span className="turno-lab">Turno predefinito</span>
+          <input type="time" className="orario-mini" value={turno.dalle} onChange={e => setTurnoDef({ dalle: e.target.value })} />
+          <span className="turno-sep">→</span>
+          <input type="time" className="orario-mini" value={turno.alle} onChange={e => setTurnoDef({ alle: e.target.value })} />
+          <button className="btn ghost sm" onClick={() => applicaTurno(null)}>Applica a chi non ha orario</button>
+          <span className="hint">Viene proposto in automatico a ogni nuova persona. Dopo mezzanotte usa 00:30, 01:00…</span>
+        </div>
+      )}
 
       {aree.length === 0 && (
         <p className="hint" style={{ margin: "10px 0 16px" }}>
@@ -1912,6 +2151,7 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
 
             {(a.mansioni || []).map(m => {
               const cc = conta(m), d = cc.rich - cc.pres;
+              const lista = personeDi(m);
               return (
                 <div key={m.id} className="mans">
                   <div className="mans-riga">
@@ -1923,21 +2163,46 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
                     <div className="cifra">{cc.pres}</div>
                     <div className={"delta " + (d > 0 ? "ko" : "ok")}>{d > 0 ? "-" + d : (d < 0 ? "+" + (-d) : "ok")}</div>
                   </div>
-                  <div className="persone">
-                    {(m.persone || []).map(p => (
-                      <span key={p} className="persona">{p}
-                        <button onClick={() => togliPersona(a, m, p)} title="Togli">×</button>
-                      </span>
-                    ))}
-                    <input className="add-persona" placeholder="+ persona"
-                      onKeyDown={e => { if (e.key === "Enter") { aggiungiPersona(a, m, e.target.value); e.target.value = ""; } }}
-                      onBlur={e => { if (e.target.value.trim()) { aggiungiPersona(a, m, e.target.value); e.target.value = ""; } }} />
+
+                  <div className="persone-lista">
+                    {lista.map((p, i) => {
+                      const incompleto = !(ORA_OK(p.dalle) && ORA_OK(p.alle));
+                      return (
+                        <div key={i} className={"persona-riga" + (incompleto ? " senza-ora" : "")}>
+                          <span className="persona-nome" title={p.nome}>{p.nome}</span>
+                          <input type="time" className="orario-mini" value={p.dalle || ""} title="Dalle"
+                            onChange={e => patchPersona(a, m, i, { dalle: e.target.value })}
+                            onFocus={e => { e.target.dataset.ini = e.target.value; }}
+                            onBlur={e => { if (e.target.dataset.ini !== e.target.value) log("ha messo " + p.nome + " in turno " + (e.target.value || "—") + "–" + (p.alle || "—") + " · " + m.nome + " · " + a.nome); }} />
+                          <span className="turno-sep">→</span>
+                          <input type="time" className="orario-mini" value={p.alle || ""} title="Alle"
+                            onChange={e => patchPersona(a, m, i, { alle: e.target.value })}
+                            onFocus={e => { e.target.dataset.ini = e.target.value; }}
+                            onBlur={e => { if (e.target.dataset.ini !== e.target.value) log("ha messo " + p.nome + " in turno " + (p.dalle || "—") + "–" + (e.target.value || "—") + " · " + m.nome + " · " + a.nome); }} />
+                          <button className="togli" title="Togli" onClick={() => togliPersona(a, m, i)}>×</button>
+                        </div>
+                      );
+                    })}
+                    <div className="persona-riga aggiungi">
+                      <input className="add-persona" placeholder="+ persona"
+                        onKeyDown={e => { if (e.key === "Enter") { aggiungiPersona(a, m, e.target.value); e.target.value = ""; } }}
+                        onBlur={e => { if (e.target.value.trim()) { aggiungiPersona(a, m, e.target.value); e.target.value = ""; } }} />
+                      {(turno.dalle || turno.alle) && (
+                        <span className="hint">con orario {turno.dalle || "…"}–{turno.alle || "…"}</span>
+                      )}
+                    </div>
                   </div>
+
                   {isAdmin && (
-                    <button className="btn ghost sm" style={{ marginTop: 8 }} onClick={() => {
-                      if (confirm("Eliminare la mansione " + m.nome + "?"))
-                        patchArea(a.id, { mansioni: a.mansioni.filter(x => x.id !== m.id) }, "ha eliminato la mansione " + m.nome);
-                    }}>Elimina mansione</button>
+                    <div className="row" style={{ marginTop: 8, flexWrap: "wrap" }}>
+                      <button className="btn ghost sm" style={{ flex: "0 0 auto" }} onClick={() => applicaTurno(m)}>
+                        Orario a chi non ce l'ha
+                      </button>
+                      <button className="btn ghost sm" style={{ flex: "0 0 auto" }} onClick={() => {
+                        if (confirm("Eliminare la mansione " + m.nome + "?"))
+                          patchArea(a.id, { mansioni: a.mansioni.filter(x => x.id !== m.id) }, "ha eliminato la mansione " + m.nome);
+                      }}>Elimina mansione</button>
+                    </div>
                   )}
                 </div>
               );
@@ -1951,6 +2216,53 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
           </div>
         );
       })}
+
+      {(piano.slot.length > 0 || piano.senza.length > 0) && (
+        <div className="panel no-print" style={{ marginTop: 14 }}>
+          <div className="fasce-top">
+            <h2 style={{ margin: 0, flex: 1 }}>Chi c'è, fascia per fascia</h2>
+            <button className="btn ghost sm" onClick={() => setMostraFasce(v => !v)}>{mostraFasce ? "Nascondi" : "Mostra"}</button>
+          </div>
+
+          {mostraFasce && piano.senza.length > 0 && (
+            <p className="hint" style={{ marginBottom: 10 }}>
+              <b style={{ color: "var(--rosso)" }}>Senza orario:</b>{" "}
+              {piano.senza.map(s => s.nome + " (" + s.mans + ")").join(", ")} — non compaiono nelle fasce.
+            </p>
+          )}
+
+          {mostraFasce && piano.slot.map(s => (
+            <div key={s.da} className="fascia">
+              <div className="fascia-ora">
+                <b className="num">{daMin(s.da)} – {daMin(s.al)}</b>
+                <span className={s.manca ? "ko" : "ok"}>
+                  {s.tot} in servizio{s.manca ? " · mancano " + s.manca : " · copertura ok"}
+                </span>
+              </div>
+              {s.gruppi.map(g => (
+                <div key={g.area.id} className="fascia-area">
+                  <span className="fascia-pill" style={{ background: colore(g.area.colore).bg, color: colore(g.area.colore).testo }}>
+                    {g.area.nome}
+                  </span>
+                  <div className="fascia-mansioni">
+                    {g.mans.map(x => (
+                      <div key={x.m.id} className="fascia-mans">
+                        <span className="fascia-mans-nome">{x.m.nome}</span>
+                        <span className={"fascia-conta " + (x.pres.length < x.rich ? "ko" : "ok")}>{x.pres.length}/{x.rich}</span>
+                        <span className="fascia-nomi">{x.pres.map(p => p.nome).join(", ") || "nessuno"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+
+          {mostraFasce && piano.slot.length === 0 && (
+            <p className="hint">Inserisci gli orari delle persone per vedere qui la copertura fascia per fascia.</p>
+          )}
+        </div>
+      )}
 
       {isAdmin && (
         <div className="panel no-print">
