@@ -225,6 +225,24 @@
   /* ---------- Modale ---------- */
   .overlay{position:fixed;inset:0;background:rgba(10,9,15,.7);display:flex;align-items:center;justify-content:center;padding:16px;z-index:60}
   .modal{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;width:100%;max-width:420px;max-height:90vh;overflow:auto}
+  .modal.largo{max-width:820px}
+  .vicini{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+  .opzioni{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:8px}
+  .opzione{display:flex;flex-direction:column;gap:3px;text-align:left;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 11px}
+  .opzione:hover{border-color:var(--muted)}
+  .opzione.on{border-color:var(--amber);background:var(--amber-soft)}
+  .opzione b{font-size:14px}
+  .opzione span{font-size:11px;color:var(--muted)}
+  .opzione .num{font-family:"IBM Plex Mono",monospace;font-style:normal;color:var(--text)}
+  .opz-vinc.ok{color:var(--verde)}
+  .opz-vinc.ko{color:var(--rosso)}
+  .opz-fuori{color:var(--rosso)!important}
+  .anteprima{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px;max-height:38vh;overflow-y:auto;padding-right:2px}
+  .ant-tav{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 9px}
+  .ant-tav h4{margin:0 0 5px;font-size:12px;display:flex;justify-content:space-between;gap:6px;font-family:"Bricolage Grotesque",sans-serif}
+  .ant-tav h4 .num{font-family:"IBM Plex Mono",monospace;color:var(--amber)}
+  .ant-osp{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
+  .ant-osp .num{font-family:"IBM Plex Mono",monospace;font-style:normal}
   .modal h3{font-family:"Bricolage Grotesque",sans-serif;margin:0 0 12px;font-size:17px}
 
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;padding:10px 18px;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.5)}
@@ -645,6 +663,28 @@ function useDati() {
     return id;
   }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
 
+  /* salva tante prenotazioni in un colpo solo (disposizione automatica, vincoli) */
+  const salvaPrenTante = useCallback((lista) => {
+    if (!lista || !lista.length) return;
+    const f = firma();
+    if (db) {
+      let batch = db.batch(), n = 0;
+      lista.forEach(x => {
+        const dati = { ...x, ...f };
+        const id = dati.id; delete dati.id;
+        batch.set(db.collection("prenotazioni").doc(id), dati, { merge: true });
+        if (++n % 400 === 0) { batch.commit().catch(e => console.error(e)); batch = db.batch(); }
+      });
+      return batch.commit().catch(e => console.error(e));
+    }
+    setPren(prev => {
+      const m = {}; lista.forEach(x => { m[x.id] = x; });
+      const next = prev.map(x => (m[x.id] ? { ...x, ...m[x.id], ...f } : x));
+      salvaLocale({ prenotazioni: next });
+      return next;
+    });
+  }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
+
   const eliminaPren = useCallback((id) => {
     if (db) return db.collection("prenotazioni").doc(id).delete();
     setPren(prev => { const next = prev.filter(x => x.id !== id); salvaLocale({ prenotazioni: next }); return next; });
@@ -700,7 +740,7 @@ function useDati() {
     setAttivita(prev => { const next = [voce, ...prev].slice(0, 200); salvaLocale({ attivita: next }); return next; });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
 
-  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, salvaManodopera, manodopera, finanze, salvaFinanze, permessi, salvaPermessi, log, cloud: !!db };
+  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, salvaPrenTante, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, salvaManodopera, manodopera, finanze, salvaFinanze, permessi, salvaPermessi, log, cloud: !!db };
 }
 
 /* =========================================================
@@ -721,6 +761,220 @@ function occupazione(tavoli, prenotazioni) {
     });
   });
   return m;
+}
+
+/* =========================================================
+   Disposizione automatica dei tavoli
+   Vincoli: "vicino a" fra prenotazioni, capienza dei tavoli,
+   prenotazioni tenute intere quando possibile.
+   ========================================================= */
+const dimTavolo = (t) => {
+  const perLato = Math.ceil((t.posti || 0) / 2);
+  const lung = 30 + perLato * 30;
+  return t.orient === "v" ? { w: 96, h: lung } : { w: lung, h: 96 };
+};
+const centroTavolo = (t) => {
+  const d = dimTavolo(t);
+  return { x: (t.x || 0) + d.w / 2, y: (t.y || 0) + d.h / 2 };
+};
+const distanzaTavoli = (a, b) => {
+  const ca = centroTavolo(a), cb = centroTavolo(b);
+  return Math.sqrt((ca.x - cb.x) * (ca.x - cb.x) + (ca.y - cb.y) * (ca.y - cb.y));
+};
+/* quanto devono essere lontani due tavoli per non dirsi "accanto":
+   mediana della distanza dal vicino più prossimo, con un margine */
+function sogliaVicinanza(tavoli) {
+  if (tavoli.length < 2) return 0;
+  const d = tavoli.map(t => {
+    let m = Infinity;
+    tavoli.forEach(x => { if (x.id !== t.id) m = Math.min(m, distanzaTavoli(t, x)); });
+    return m;
+  }).sort((a, b) => a - b);
+  return d[Math.floor(d.length / 2)] * 1.6;
+}
+const ordineTavoli = (a, b) => (a.y - b.y) || (a.x - b.x) || String(a.nome).localeCompare(String(b.nome), "it", { numeric: true });
+
+/* prenotazioni legate dal vincolo "vicino a": un gruppo va allo stesso tavolo */
+function gruppiVicinanza(lista) {
+  const padre = {};
+  const trova = (x) => { while (padre[x] !== x) { padre[x] = padre[padre[x]]; x = padre[x]; } return x; };
+  const unisci = (a, b) => { const ra = trova(a), rb = trova(b); if (ra !== rb) padre[ra] = rb; };
+  lista.forEach(p => { padre[p.id] = p.id; });
+  lista.forEach(p => (p.vicini || []).forEach(v => { if (padre[v] !== undefined) unisci(p.id, v); }));
+  const m = {};
+  lista.forEach(p => {
+    const r = trova(p.id);
+    if (!m[r]) m[r] = { id: r, membri: [], pax: 0, orario: "99:99" };
+    m[r].membri.push(p);
+    m[r].pax += p.pax || 0;
+    if (p.orario && p.orario < m[r].orario) m[r].orario = p.orario;
+  });
+  return Object.keys(m).map(k => m[k]);
+}
+
+/* coppie di vincolo, per contare quanti sono rispettati */
+function coppieVicinanza(lista) {
+  const c = {};
+  const dentro = {}; lista.forEach(p => { dentro[p.id] = true; });
+  lista.forEach(p => (p.vicini || []).forEach(v => {
+    if (v === p.id || !dentro[v]) return;
+    const a = p.id < v ? p.id : v, b = p.id < v ? v : p.id;
+    c[a + "|" + b] = [a, b];
+  }));
+  return Object.keys(c).map(k => c[k]);
+}
+
+/* una singola proposta di disposizione */
+function disponiVariante(tavoli, gruppi, strategia, occupati, ancore, rnd) {
+  const liberi = {};
+  tavoli.forEach(t => { liberi[t.id] = Math.max(0, (t.posti || 0) - (occupati[t.id] || 0)); });
+  const ass = {};
+  const metti = (pid, tid, n) => {
+    if (n <= 0) return;
+    ass[pid] = ass[pid] || [];
+    const i = ass[pid].findIndex(a => a.tavolo === tid);
+    if (i >= 0) ass[pid][i].posti += n; else ass[pid].push({ tavolo: tid, posti: n });
+    liberi[tid] -= n;
+  };
+  const mappa = {}; tavoli.forEach(t => { mappa[t.id] = t; });
+
+  const ordine = gruppi.slice();
+  if (strategia === "orario") ordine.sort((a, b) => String(a.orario).localeCompare(String(b.orario)) || b.pax - a.pax);
+  else if (strategia === "casuale") ordine.sort(() => rnd() - 0.5);
+  else ordine.sort((a, b) => b.pax - a.pax || String(a.orario).localeCompare(String(b.orario)));
+
+  ordine.forEach(g => {
+    const anc = (ancore[g.id] || []).map(id => mappa[id]).filter(Boolean);
+    const vicinoAncora = (t) => (anc.length ? Math.min.apply(null, anc.map(x => distanzaTavoli(t, x))) : 0);
+
+    /* 1) tutto il gruppo in un tavolo solo */
+    const capienti = tavoli.filter(t => liberi[t.id] >= g.pax);
+    if (capienti.length) {
+      let t;
+      if (anc.length) t = capienti.reduce((x, y) => (vicinoAncora(y) < vicinoAncora(x) ? y : x));
+      else if (strategia === "comoda") t = capienti.reduce((x, y) => (liberi[y.id] > liberi[x.id] ? y : x));
+      else if (strategia === "orario") t = capienti[0];
+      else if (strategia === "casuale") {
+        const migliori = capienti.slice().sort((x, y) => liberi[x.id] - liberi[y.id]).slice(0, 3);
+        t = migliori[Math.floor(rnd() * migliori.length)] || migliori[0];
+      } else t = capienti.reduce((x, y) => (liberi[y.id] < liberi[x.id] ? y : x));
+      g.membri.forEach(p => metti(p.id, t.id, p.pax || 0));
+      return;
+    }
+
+    /* 2) non ci sta: si parte dal tavolo più capiente (o dall'ancora) e si prosegue con i più vicini */
+    const conPosto = tavoli.filter(t => liberi[t.id] > 0);
+    if (!conPosto.length) return;
+    const start = anc.length
+      ? conPosto.reduce((x, y) => (vicinoAncora(y) < vicinoAncora(x) ? y : x))
+      : conPosto.reduce((x, y) => (liberi[y.id] > liberi[x.id] ? y : x));
+    const seq = [start].concat(conPosto.filter(t => t.id !== start.id)
+      .sort((x, y) => distanzaTavoli(start, x) - distanzaTavoli(start, y) || liberi[y.id] - liberi[x.id]));
+    let i = 0;
+    g.membri.slice().sort((a, b) => (b.pax || 0) - (a.pax || 0)).forEach(p => {
+      let resta = p.pax || 0;
+      const intero = seq.find(t => liberi[t.id] >= resta);
+      if (intero) { metti(p.id, intero.id, resta); return; }
+      let giri = 0;
+      while (resta > 0 && i < seq.length && giri < 500) {
+        giri++;
+        const t = seq[i];
+        const n = Math.min(resta, liberi[t.id]);
+        if (n > 0) { metti(p.id, t.id, n); resta -= n; }
+        if (resta > 0 || liberi[t.id] <= 0) i++;
+      }
+    });
+  });
+  return ass;
+}
+
+/* voto di una disposizione: più è basso il punteggio, meglio è */
+function valutaDisposizione(ass, tavoli, lista, coppie, soglia) {
+  const mappa = {}; tavoli.forEach(t => { mappa[t.id] = t; });
+  const perTav = {};
+  let spezzate = 0, sistemati = 0, totale = 0;
+  lista.forEach(p => {
+    totale += p.pax || 0;
+    const a = ass[p.id] || [];
+    if (a.length > 1) spezzate++;
+    a.forEach(x => { sistemati += x.posti; perTav[x.tavolo] = (perTav[x.tavolo] || 0) + x.posti; });
+  });
+  let insieme = 0, accanto = 0, lontano = 0;
+  coppie.forEach(c => {
+    const ta = (ass[c[0]] || []).map(x => x.tavolo), tb = (ass[c[1]] || []).map(x => x.tavolo);
+    if (!ta.length || !tb.length) { lontano++; return; }
+    if (ta.some(x => tb.indexOf(x) >= 0)) { insieme++; return; }
+    let d = Infinity;
+    ta.forEach(x => tb.forEach(y => {
+      if (mappa[x] && mappa[y]) d = Math.min(d, distanzaTavoli(mappa[x], mappa[y]));
+    }));
+    if (d <= soglia) accanto++; else lontano++;
+  });
+  const tavoliUsati = Object.keys(perTav).length;
+  const nonSistemati = Math.max(0, totale - sistemati);
+  return {
+    sistemati, nonSistemati, spezzate, insieme, accanto, lontano, tavoliUsati, perTav,
+    punteggio: nonSistemati * 100 + spezzate * 8 + lontano * 30 + accanto * 6 + tavoliUsati * 0.5
+  };
+}
+
+/* genera le proposte fra cui scegliere */
+function proponiDisposizioni(tavoli, prenotazioni, mantieni) {
+  const attiveP = attive(prenotazioni).filter(p => (p.pax || 0) > 0);
+  const fisse = mantieni ? attiveP.filter(p => postiAssegnati(p) > 0) : [];
+  const idFisse = {}; fisse.forEach(p => { idFisse[p.id] = p; });
+  const daSistemare = attiveP.filter(p => !idFisse[p.id]);
+
+  const occupati = {};
+  fisse.forEach(p => (p.assegnazioni || []).forEach(a => { occupati[a.tavolo] = (occupati[a.tavolo] || 0) + a.posti; }));
+
+  const gruppi = gruppiVicinanza(daSistemare);
+  const coppie = coppieVicinanza(attiveP);
+  const soglia = sogliaVicinanza(tavoli);
+  const tavOrd = tavoli.slice().sort(ordineTavoli);
+
+  /* se un gruppo è legato a qualcuno già seduto, gli si sta vicino */
+  const ancore = {};
+  gruppi.forEach(g => {
+    const t = [];
+    g.membri.forEach(p => (p.vicini || []).forEach(v => {
+      if (idFisse[v]) (idFisse[v].assegnazioni || []).forEach(a => { if (t.indexOf(a.tavolo) < 0) t.push(a.tavolo); });
+    }));
+    ancore[g.id] = t;
+  });
+
+  const completa = (ass) => {
+    const out = {};
+    fisse.forEach(p => { out[p.id] = (p.assegnazioni || []).map(a => ({ tavolo: a.tavolo, posti: a.posti })); });
+    Object.keys(ass).forEach(k => { out[k] = ass[k]; });
+    daSistemare.forEach(p => { if (!out[p.id]) out[p.id] = []; });
+    return out;
+  };
+
+  const base = [
+    { k: "compatta", nome: "Compatta", descr: "Riempie i tavoli il più possibile: meno tavoli usati, gruppi grandi sistemati per primi." },
+    { k: "orario", nome: "Per orario", descr: "Segue l'ordine di arrivo: chi mangia alla stessa ora finisce nella stessa zona della sala." },
+    { k: "comoda", nome: "Comoda", descr: "Distribuisce i coperti su più tavoli: nessuno stretto, più spazio fra i gruppi." }
+  ].map(v => {
+    const ass = completa(disponiVariante(tavOrd, gruppi, v.k, occupati, ancore, Math.random));
+    return { ...v, ass, stat: valutaDisposizione(ass, tavoli, attiveP, coppie, soglia) };
+  });
+
+  /* variante a tentativi: prova tanti ordini diversi e tiene il migliore */
+  let seme = 12345;
+  const rnd = () => { seme = (seme * 1103515245 + 12345) & 0x7fffffff; return seme / 0x7fffffff; };
+  let best = null;
+  for (let i = 0; i < 80; i++) {
+    const ass = completa(disponiVariante(tavOrd, gruppi, "casuale", occupati, ancore, rnd));
+    const stat = valutaDisposizione(ass, tavoli, attiveP, coppie, soglia);
+    if (!best || stat.punteggio < best.stat.punteggio) best = { ass, stat };
+  }
+  const varianti = base.concat(best ? [{
+    k: "ottimizzata", nome: "Ottimizzata", descr: "Ottanta tentativi diversi, tenuto quello con meno vincoli rotti e meno prenotazioni divise.",
+    ass: best.ass, stat: best.stat
+  }] : []);
+
+  return { varianti, coppie: coppie.length, daSistemare: daSistemare.length, fisse: fisse.length, soglia };
 }
 
 /* =========================================================
@@ -843,6 +1097,87 @@ function App() {
     D.salvaPren({ ...p, assegnazioni: (p.assegnazioni || []).filter(a => a.tavolo !== tid) });
     D.log("ha tolto " + p.nome + " dal tavolo " + tid);
     mostra(p.nome + " tolto da " + tid);
+  };
+
+  /* --- Disposizione automatica: applica la proposta scelta --- */
+  const applicaDisposizione = (ass, etichetta) => {
+    const chiave = (l) => (l || []).map(a => a.tavolo + ":" + a.posti).sort().join("|");
+    const cambi = [];
+    D.prenotazioni.forEach(p => {
+      if (p.stato === "annullata") return;
+      const nuove = ass[p.id];
+      if (!nuove) return;
+      if (chiave(nuove) !== chiave(p.assegnazioni)) cambi.push({ ...p, assegnazioni: nuove });
+    });
+    setModale(null);
+    if (!cambi.length) return mostra("La disposizione era già questa");
+    D.salvaPrenTante(cambi);
+    D.log("ha applicato la disposizione automatica \u00ab " + etichetta + " \u00bb a " + cambi.length + " prenotazioni");
+    mostra("Disposizione applicata (" + cambi.length + " prenotazioni)");
+  };
+
+  /* --- Targhette da tavolo: 4 per foglio A4, da ritagliare --- */
+  const esportaTarghette = () => {
+    if (!window.jspdf || !window.jspdf.jsPDF) return mostra("Libreria PDF non disponibile");
+    const tav = D.tavoli.filter(t => (occ[t.id] || {}).posti > 0).sort(ordineTavoli);
+    if (!tav.length) return mostra("Nessun tavolo occupato: non ci sono targhette da fare");
+    const pdf = new window.jspdf.jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const PW = pdf.internal.pageSize.getWidth(), PH = pdf.internal.pageSize.getHeight();
+    const CW = PW / 2, CH = PH / 2, M = 9;
+
+    tav.forEach((t, i) => {
+      const k = i % 4;
+      if (i > 0 && k === 0) pdf.addPage();
+      const ox = (k % 2) * CW, oy = Math.floor(k / 2) * CH;
+
+      /* linee di taglio */
+      pdf.setDrawColor(205); pdf.setLineWidth(0.2);
+      pdf.setLineDashPattern([1.2, 1.2], 0);
+      pdf.rect(ox + 3, oy + 3, CW - 6, CH - 6);
+      pdf.setLineDashPattern([], 0);
+
+      const o = occ[t.id] || { posti: 0, ospiti: [] };
+      const ospiti = o.ospiti.slice().sort((a, b) =>
+        String(a.orario || "99:99").localeCompare(String(b.orario || "99:99")) || String(a.nome).localeCompare(String(b.nome), "it"));
+
+      /* testata */
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(150);
+      pdf.text("FESTIVAL DI FABBRICO", ox + CW / 2, oy + M + 4, { align: "center" });
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(34); pdf.setTextColor(25);
+      pdf.text(String(t.nome), ox + CW / 2, oy + M + 22, { align: "center" });
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(130);
+      pdf.text(o.posti + (o.posti === 1 ? " coperto" : " coperti"), ox + CW / 2, oy + M + 29, { align: "center" });
+      pdf.setDrawColor(215); pdf.setLineWidth(0.4);
+      pdf.line(ox + M + 4, oy + M + 33, ox + CW - M - 4, oy + M + 33);
+
+      /* elenco dei prenotati */
+      const top = oy + M + 41, fondo = oy + CH - M - 4;
+      const spazio = fondo - top;
+      let fs = 12, lh = 7;
+      const larg = CW - 2 * M - 22;
+      const righe = ospiti.map(g => ({ g: g, testo: String(g.nome || "") }));
+      pdf.setFont("helvetica", "bold");
+      while (fs > 7) {
+        pdf.setFontSize(fs);
+        const alte = righe.reduce((s, r) => s + Math.min(2, pdf.splitTextToSize(r.testo, larg).length) * lh, 0);
+        if (alte <= spazio) break;
+        fs -= 0.7; lh -= 0.35;
+      }
+      let y = top;
+      righe.forEach(r => {
+        if (y > fondo) return;
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(fs); pdf.setTextColor(30);
+        const parti = pdf.splitTextToSize(r.testo, larg).slice(0, 2);
+        parti.forEach((linea, j) => { pdf.text(linea, ox + M + 2, y + j * lh); });
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(Math.max(7.5, fs - 2.5)); pdf.setTextColor(120);
+        pdf.text(r.g.posti + (r.g.orario ? "  ·  " + r.g.orario : ""), ox + CW - M - 2, y, { align: "right" });
+        y += parti.length * lh;
+      });
+    });
+
+    pdf.save("targhette-tavoli.pdf");
+    D.log("ha stampato le targhette di " + tav.length + " tavoli");
+    mostra("Targhette pronte: " + tav.length + " tavoli");
   };
 
   /* --- Spostamento tavoli --- */
@@ -1188,6 +1523,7 @@ function App() {
                       {p.orario && <span className="tag">ore {p.orario}</span>}
                       {(p.assegnazioni || []).map(a => <span key={a.tavolo} className="tag seat">{a.tavolo} · {a.posti}</span>)}
                       {resta > 0 && <span className="tag">{resta} da sedere</span>}
+                      {(p.vicini || []).length > 0 && <span className="tag" title="Vincoli di vicinanza">↔ {(p.vicini || []).length}</span>}
                       {p.stato === "arrivata" && <span className="tag" style={{ color: "var(--verde)", borderColor: "rgba(79,195,161,.4)" }}>arrivata</span>}
                       {p.telefono && <span>{p.telefono}</span>}
                     </div>
@@ -1219,6 +1555,8 @@ function App() {
               <span className="num" style={{ minWidth: 42, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
               <button className="btn ghost sm" onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))}>+</button>
               <button className="btn ghost sm" onClick={adatta}>Adatta</button>
+              {isAdmin && <button className="btn sm" onClick={() => setModale({ tipo: "auto" })}>Disponi in automatico</button>}
+              <button className="btn ghost sm" onClick={esportaTarghette}>Targhette tavoli</button>
               <div className="spacer" />
               <span className="hint">{sel ? "Tocca un tavolo per sedere la prenotazione selezionata" : "Tocca un tavolo per vederne il dettaglio"}</span>
             </div>
@@ -1294,6 +1632,7 @@ function App() {
             <h2 style={{ margin: 0 }}>Servizio</h2>
             <div className="spacer" />
             <span className="hint no-print">Coperti da servire: <b className="num">{totali.seduti}</b></span>
+            <button className="btn ghost sm no-print" onClick={esportaTarghette}>Targhette tavoli</button>
             <button className="btn ghost sm no-print" onClick={() => window.print()}>Stampa</button>
           </div>
           <div className="srv-grid">
@@ -1419,9 +1758,20 @@ function App() {
 
       {/* ---------- Modali ---------- */}
       {modale && modale.tipo === "pren" && (
-        <ModalePren dati={modale.dati} onChiudi={() => setModale(null)}
+        <ModalePren dati={modale.dati} tutte={D.prenotazioni} onChiudi={() => setModale(null)}
           onSalva={(p) => {
-            D.salvaPren(p);
+            const id = D.salvaPren(p) || p.id;
+            /* il vincolo di vicinanza vale nei due sensi: lo riporto sull'altra prenotazione */
+            const vicini = p.vicini || [];
+            const rimbalzo = [];
+            D.prenotazioni.forEach(x => {
+              if (x.id === id) return;
+              const ha = (x.vicini || []).indexOf(id) >= 0;
+              const deve = vicini.indexOf(x.id) >= 0;
+              if (deve && !ha) rimbalzo.push({ ...x, vicini: [...(x.vicini || []), id] });
+              if (!deve && ha) rimbalzo.push({ ...x, vicini: (x.vicini || []).filter(v => v !== id) });
+            });
+            if (rimbalzo.length) D.salvaPrenTante(rimbalzo);
             D.log((p.id ? "ha modificato la prenotazione " : "ha inserito la prenotazione ") + p.nome + " (" + p.pax + " pers.)");
             setModale(null); mostra("Prenotazione salvata");
           }}
@@ -1437,6 +1787,10 @@ function App() {
           onLibera={(pid) => liberaTavolo(modale.t.id, pid)}
           onSalva={(t) => { D.salvaPiantina(D.tavoli.map(x => (x.id === t.id ? t : x))); D.log("ha modificato il tavolo " + t.nome); setModale(null); }}
           onElimina={(id) => { D.salvaPiantina(D.tavoli.filter(x => x.id !== id)); D.log("ha rimosso il tavolo " + modale.t.nome); setModale(null); mostra("Tavolo rimosso"); }} />
+      )}
+      {modale && modale.tipo === "auto" && (
+        <ModaleAuto tavoli={D.tavoli} prenotazioni={D.prenotazioni}
+          onChiudi={() => setModale(null)} onApplica={applicaDisposizione} />
       )}
       {modale && modale.tipo === "incolla" && (
         <ModaleIncolla onChiudi={() => setModale(null)}
@@ -2554,11 +2908,16 @@ function Permessi({ permessi, utenti, onSalva }) {
 }
 
 /* ---------- Modale prenotazione ---------- */
-function ModalePren({ dati, onSalva, onElimina, onChiudi }) {
+function ModalePren({ dati, tutte, onSalva, onElimina, onChiudi }) {
   const [f, setF] = useState({
-    nome: "", pax: 2, orario: "", telefono: "", note: "", stato: "attesa", assegnazioni: [], ...dati
+    nome: "", pax: 2, orario: "", telefono: "", note: "", stato: "attesa", assegnazioni: [], vicini: [], ...dati
   });
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const elenco = tutte || [];
+  const vicini = f.vicini || [];
+  const candidati = elenco
+    .filter(x => x.id && x.id !== f.id && x.stato !== "annullata" && vicini.indexOf(x.id) < 0)
+    .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "it"));
   return (
     <div className="overlay" onClick={onChiudi}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -2593,6 +2952,26 @@ function ModalePren({ dati, onSalva, onElimina, onChiudi }) {
               <option value="attesa">In attesa</option><option value="arrivata">Arrivata</option><option value="annullata">Annullata</option>
             </select></div>
         </div>
+        <div className="field">
+          <label>Vuole stare vicino a</label>
+          {vicini.length > 0 && (
+            <div className="vicini">
+              {vicini.map(id => {
+                const v = elenco.find(x => x.id === id);
+                return (
+                  <span key={id} className="persona">{v ? v.nome : "prenotazione eliminata"}
+                    <button onClick={() => set("vicini", vicini.filter(x => x !== id))} title="Togli">×</button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          <select value="" onChange={e => { if (e.target.value) set("vicini", [...vicini, e.target.value]); }}>
+            <option value="">+ collega un'altra prenotazione…</option>
+            {candidati.map(x => <option key={x.id} value={x.id}>{x.nome} ({x.pax})</option>)}
+          </select>
+          <p className="hint">La disposizione automatica prova a metterli allo stesso tavolo, o al più vicino possibile.</p>
+        </div>
         <div className="field"><label>Note (allergie, bambini, seggioloni…)</label>
           <textarea value={f.note} onChange={e => set("note", e.target.value)} /></div>
         <div className="row" style={{ marginTop: 12 }}>
@@ -2605,6 +2984,108 @@ function ModalePren({ dati, onSalva, onElimina, onChiudi }) {
     </div>
   );
 }
+
+/* ---------- Modale: disposizione automatica ---------- */
+function ModaleAuto({ tavoli, prenotazioni, onApplica, onChiudi }) {
+  const [mantieni, setMantieni] = useState(false);
+  const [scelta, setScelta] = useState(0);
+  const [dettaglio, setDettaglio] = useState(false);
+
+  const calcolo = useMemo(
+    () => proponiDisposizioni(tavoli, prenotazioni, mantieni),
+    [tavoli, prenotazioni, mantieni]
+  );
+  const v = calcolo.varianti[scelta] || calcolo.varianti[0];
+  const nomeDi = (id) => { const p = prenotazioni.find(x => x.id === id); return p ? p.nome : "?"; };
+
+  const perTavolo = useMemo(() => {
+    if (!v) return [];
+    const m = {};
+    Object.keys(v.ass).forEach(pid => (v.ass[pid] || []).forEach(a => {
+      (m[a.tavolo] = m[a.tavolo] || []).push({ pid: pid, posti: a.posti });
+    }));
+    return tavoli.slice().sort(ordineTavoli).filter(t => m[t.id]).map(t => ({ t: t, ospiti: m[t.id] }));
+  }, [v, tavoli]);
+
+  const fuori = useMemo(() => {
+    if (!v) return [];
+    return attive(prenotazioni).filter(p => (p.pax || 0) > 0 && (!v.ass[p.id] || !v.ass[p.id].length));
+  }, [v, prenotazioni]);
+
+  return (
+    <div className="overlay" onClick={onChiudi}>
+      <div className="modal largo" onClick={e => e.stopPropagation()}>
+        <h3>Disposizione automatica</h3>
+        <p className="hint">
+          {calcolo.daSistemare} prenotazioni da sistemare · {calcolo.coppie} vincoli di vicinanza
+          {calcolo.fisse > 0 ? " · " + calcolo.fisse + " già a tavola, lasciate dove sono" : ""}
+        </p>
+        <label className="check" style={{ margin: "10px 0 12px" }}>
+          <input type="checkbox" checked={mantieni} onChange={e => { setMantieni(e.target.checked); setScelta(0); }} />
+          Non toccare chi è già seduto
+        </label>
+
+        <div className="opzioni">
+          {calcolo.varianti.map((x, i) => (
+            <button key={x.k} className={"opzione" + (i === scelta ? " on" : "")} onClick={() => setScelta(i)}>
+              <b>{x.nome}</b>
+              <span className="opz-num">
+                <i className="num">{x.stat.tavoliUsati}</i> tavoli · <i className="num">{x.stat.spezzate}</i> divise
+              </span>
+              <span className={"opz-vinc " + (x.stat.lontano ? "ko" : "ok")}>
+                vincoli: {x.stat.insieme} insieme, {x.stat.accanto} accanto, {x.stat.lontano} lontani
+              </span>
+              {x.stat.nonSistemati > 0 && <span className="opz-fuori">{x.stat.nonSistemati} coperti senza posto</span>}
+            </button>
+          ))}
+        </div>
+
+        {v && (
+          <div>
+            <p className="hint" style={{ marginTop: 10 }}>{v.descr}</p>
+            <div className="plan-bar" style={{ marginTop: 10 }}>
+              <span className="hint">
+                Sistemati <b className="num">{v.stat.sistemati}</b> coperti su <b className="num">{v.stat.tavoliUsati}</b> tavoli
+              </span>
+              <div className="spacer" />
+              <button className="btn ghost sm" onClick={() => setDettaglio(d => !d)}>
+                {dettaglio ? "Nascondi anteprima" : "Vedi anteprima"}
+              </button>
+            </div>
+
+            {dettaglio && (
+              <div className="anteprima">
+                {perTavolo.map(x => (
+                  <div key={x.t.id} className="ant-tav">
+                    <h4>{x.t.nome}<span className="num">{x.ospiti.reduce((s, o) => s + o.posti, 0)}/{x.t.posti}</span></h4>
+                    {x.ospiti.map((o, i) => (
+                      <div key={o.pid + "-" + i} className="ant-osp">{nomeDi(o.pid)} <i className="num">{o.posti}</i></div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {fuori.length > 0 && (
+              <p className="hint" style={{ marginTop: 8, color: "var(--rosso)" }}>
+                Senza posto: {fuori.map(p => p.nome + " (" + p.pax + ")").join(", ")}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="row" style={{ marginTop: 14 }}>
+          <button className="btn" disabled={!v} onClick={() => v && onApplica(v.ass, v.nome)}>Usa questa disposizione</button>
+          <button className="btn ghost" onClick={onChiudi}>Annulla</button>
+        </div>
+        <p className="hint" style={{ marginTop: 8 }}>
+          Si può sempre correggere a mano dopo: la disposizione scelta sostituisce i tavoli assegnati alle prenotazioni.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 
 /* ---------- Modale tavolo ---------- */
 function ModaleTavolo({ t, occ, isAdmin, onSalva, onElimina, onLibera, onChiudi }) {
