@@ -800,6 +800,25 @@ function sogliaVicinanza(tavoli) {
   }).sort((a, b) => a - b);
   return d[Math.floor(d.length / 2)] * 1.6;
 }
+const rettTavolo = (t) => {
+  const d = dimTavolo(t);
+  return { x1: t.x || 0, y1: t.y || 0, x2: (t.x || 0) + d.w, y2: (t.y || 0) + d.h };
+};
+/* due tavoli si coprono a vicenda? (con un margine, così due tavoli attaccati non contano) */
+const siSovrappongono = (a, b) => {
+  const A = rettTavolo(a), B = rettTavolo(b);
+  return A.x1 < B.x2 - 10 && B.x1 < A.x2 - 10 && A.y1 < B.y2 - 10 && B.y1 < A.y2 - 10;
+};
+/* prima posizione libera nella griglia */
+const postoLibero = (piazzati, modello) => {
+  for (let r = 0; r < 60; r++) {
+    for (let c = 0; c < 8; c++) {
+      const cand = { ...modello, x: 40 + c * 230, y: 40 + r * 135 };
+      if (!piazzati.some(u => siSovrappongono(cand, u))) return { x: cand.x, y: cand.y };
+    }
+  }
+  return { x: 40, y: 40 + 135 * 60 };
+};
 const ordineTavoli = (a, b) => (a.y - b.y) || (a.x - b.x) || String(a.nome).localeCompare(String(b.nome), "it", { numeric: true });
 
 /* prenotazioni legate dal vincolo "vicino a": un gruppo va allo stesso tavolo */
@@ -1134,6 +1153,47 @@ function App() {
     D.salvaPrenTante(cambi);
     D.log("ha liberato " + cambi.length + " prenotazioni da tavoli non più esistenti");
     mostra(cambi.length + " prenotazioni rimesse fra quelle da sedere");
+  };
+
+  /* --- Tavoli impilati uno sopra l'altro: quelli sotto sono invisibili e non si possono cliccare --- */
+  const sovrapposti = useMemo(() => {
+    const tenuti = [], coperti = [];
+    D.tavoli.forEach(t => {
+      if (tenuti.some(u => siSovrappongono(t, u))) coperti.push(t); else tenuti.push(t);
+    });
+    return coperti;
+  }, [D.tavoli]);
+
+  const separaTavoli = () => {
+    if (!sovrapposti.length) return mostra("Nessun tavolo sovrapposto");
+    if (!confirm(sovrapposti.length + " tavoli sono impilati sopra ad altri e restano invisibili sulla piantina.\n\n" +
+      "Li sposto nei primi posti liberi della griglia? Le prenotazioni restano sui loro tavoli."))
+      return;
+    const coperti = {}; sovrapposti.forEach(t => { coperti[t.id] = true; });
+    const piazzati = D.tavoli.filter(t => !coperti[t.id]).map(t => ({ ...t }));
+    const nuovi = {};
+    sovrapposti.forEach(t => {
+      const pos = postoLibero(piazzati, t);
+      nuovi[t.id] = pos;
+      piazzati.push({ ...t, ...pos });
+    });
+    D.salvaPiantina(D.tavoli.map(t => (nuovi[t.id] ? { ...t, ...nuovi[t.id] } : t)));
+    D.log("ha separato " + sovrapposti.length + " tavoli che erano impilati");
+    mostra(sovrapposti.length + " tavoli separati: ora si vedono tutti");
+  };
+
+  /* --- Rinumera i tavoli seguendo la piantina: cambiano solo i nomi --- */
+  const rinumeraTavoli = () => {
+    if (!D.tavoli.length) return mostra("Non ci sono tavoli da rinumerare");
+    if (!confirm("Rinumerare i tavoli da T1 a T" + D.tavoli.length +
+      " seguendo l'ordine della piantina (da sinistra a destra, dall'alto in basso)?\n\nCambiano solo i nomi: nessuna prenotazione si sposta."))
+      return;
+    const ord = D.tavoli.slice().sort(ordineTavoli);
+    const nuovi = {};
+    ord.forEach((t, i) => { nuovi[t.id] = "T" + (i + 1); });
+    D.salvaPiantina(D.tavoli.map(t => ({ ...t, nome: nuovi[t.id] })));
+    D.log("ha rinumerato i tavoli seguendo l'ordine della piantina");
+    mostra("Tavoli rinumerati da T1 a T" + D.tavoli.length);
   };
 
   /* --- Selezione + assegnazione --- */
@@ -1646,6 +1706,7 @@ function App() {
               <span className="num" style={{ minWidth: 42, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
               <button className="btn ghost sm" onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))}>+</button>
               <button className="btn ghost sm" onClick={adatta}>Adatta</button>
+              {isAdmin && modifica && <button className="btn ghost sm" onClick={rinumeraTavoli}>Rinumera in ordine</button>}
               {isAdmin && <button className="btn sm" onClick={() => setModale({ tipo: "auto" })}>Disponi in automatico</button>}
               <button className="btn ghost sm" onClick={esportaTarghette}>Targhette tavoli</button>
               <input className="plan-cerca" value={cercaTav} onChange={e => setCercaTav(e.target.value)}
@@ -1653,6 +1714,13 @@ function App() {
               {cercaTav.trim() !== "" && <span className="hint">{(trovati && trovati.__n) || 0} trovati</span>}
               {cercaTav.trim() !== "" && <button className="btn ghost sm" onClick={() => setCercaTav("")}>×</button>}
               <div className="spacer" />
+              {sovrapposti.length > 0 && (
+                <span className="plan-avviso" title={sovrapposti.map(t => t.nome).join(", ")}>
+                  ⚠ {sovrapposti.length} tavoli sono nascosti sotto ad altri
+                  <button className="btn ghost sm" style={{ color: "var(--rosso)", borderColor: "rgba(228,91,109,.45)" }}
+                    onClick={separaTavoli}>Separa</button>
+                </span>
+              )}
               {fantasmi.length > 0 && (
                 <span className="plan-avviso" title={fantasmi.map(p => p.nome).join(", ")}>
                   ⚠ {fantasmi.length} {fantasmi.length === 1 ? "prenotazione è" : "prenotazioni sono"} su tavoli che non esistono più
@@ -1804,20 +1872,11 @@ function App() {
                 const nome = prompt("Nome del nuovo tavolo:", "T" + k);
                 if (!nome) return;
                 if (usati[nome.trim().toUpperCase()]) return alert("Esiste già un tavolo che si chiama " + nome.trim() + ".");
-                D.salvaPiantina([...D.tavoli, { id: uid(), nome, posti: 8, orient: "h", x: 40, y: 40 }]);
+                const modello = { id: uid(), nome, posti: 8, orient: "h", x: 40, y: 40 };
+                const pos = postoLibero(D.tavoli, modello);
+                D.salvaPiantina([...D.tavoli, { ...modello, ...pos }]);
               }}>Aggiungi tavolo</button>
-              <button className="btn ghost sm" onClick={() => {
-                if (!D.tavoli.length) return mostra("Non ci sono tavoli da rinumerare");
-                if (!confirm("Rinumerare i tavoli da T1 a T" + D.tavoli.length +
-                  " seguendo l'ordine della piantina (da sinistra a destra, dall'alto in basso)?\n\nCambiano solo i nomi: le prenotazioni restano sui loro tavoli."))
-                  return;
-                const ord = D.tavoli.slice().sort(ordineTavoli);
-                const nuovi = {};
-                ord.forEach((t, i) => { nuovi[t.id] = "T" + (i + 1); });
-                D.salvaPiantina(D.tavoli.map(t => ({ ...t, nome: nuovi[t.id] })));
-                D.log("ha rinumerato i tavoli seguendo l'ordine della piantina");
-                mostra("Tavoli rinumerati da T1 a T" + D.tavoli.length);
-              }}>Rinumera in ordine</button>
+              <button className="btn ghost sm" onClick={rinumeraTavoli}>Rinumera in ordine</button>
             </div>
           </div>
           <div className="panel">
