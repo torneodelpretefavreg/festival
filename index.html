@@ -200,7 +200,7 @@
   .t-nome{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;display:flex;justify-content:space-between;gap:6px;opacity:.9}
   .t-occ{color:var(--amber)}
   .tavolo.pieno .t-occ{color:#FFD9A6}
-  .t-ospiti{font-size:10px;line-height:1.3;overflow:hidden}
+  .t-ospiti{font-size:10px;line-height:1.28}
   .t-osp{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92}
   .t-osp b{font-weight:600}
 
@@ -806,7 +806,7 @@ function gruppiVicinanza(lista) {
     const r = trova(p.id);
     if (!m[r]) m[r] = { id: r, membri: [], pax: 0, orario: "99:99" };
     m[r].membri.push(p);
-    m[r].pax += p.pax || 0;
+    m[r].pax += Number(p.pax) || 0;
     if (p.orario && p.orario < m[r].orario) m[r].orario = p.orario;
   });
   return Object.keys(m).map(k => m[k]);
@@ -858,7 +858,7 @@ function disponiVariante(tavoli, gruppi, strategia, occupati, ancore, rnd) {
         const migliori = capienti.slice().sort((x, y) => liberi[x.id] - liberi[y.id]).slice(0, 3);
         t = migliori[Math.floor(rnd() * migliori.length)] || migliori[0];
       } else t = capienti.reduce((x, y) => (liberi[y.id] < liberi[x.id] ? y : x));
-      g.membri.forEach(p => metti(p.id, t.id, p.pax || 0));
+      g.membri.forEach(p => metti(p.id, t.id, Number(p.pax) || 0));
       return;
     }
 
@@ -871,8 +871,8 @@ function disponiVariante(tavoli, gruppi, strategia, occupati, ancore, rnd) {
     const seq = [start].concat(conPosto.filter(t => t.id !== start.id)
       .sort((x, y) => distanzaTavoli(start, x) - distanzaTavoli(start, y) || liberi[y.id] - liberi[x.id]));
     let i = 0;
-    g.membri.slice().sort((a, b) => (b.pax || 0) - (a.pax || 0)).forEach(p => {
-      let resta = p.pax || 0;
+    g.membri.slice().sort((a, b) => (Number(b.pax) || 0) - (Number(a.pax) || 0)).forEach(p => {
+      let resta = Number(p.pax) || 0;
       const intero = seq.find(t => liberi[t.id] >= resta);
       if (intero) { metti(p.id, intero.id, resta); return; }
       let giri = 0;
@@ -894,7 +894,7 @@ function valutaDisposizione(ass, tavoli, lista, coppie, soglia) {
   const perTav = {};
   let spezzate = 0, sistemati = 0, totale = 0;
   lista.forEach(p => {
-    totale += p.pax || 0;
+    totale += Number(p.pax) || 0;
     const a = ass[p.id] || [];
     if (a.length > 1) spezzate++;
     a.forEach(x => { sistemati += x.posti; perTav[x.tavolo] = (perTav[x.tavolo] || 0) + x.posti; });
@@ -920,7 +920,7 @@ function valutaDisposizione(ass, tavoli, lista, coppie, soglia) {
 
 /* genera le proposte fra cui scegliere */
 function proponiDisposizioni(tavoli, prenotazioni, mantieni) {
-  const attiveP = attive(prenotazioni).filter(p => (p.pax || 0) > 0);
+  const attiveP = attive(prenotazioni).filter(p => (Number(p.pax) || 0) > 0);
   const fisse = mantieni ? attiveP.filter(p => postiAssegnati(p) > 0) : [];
   const idFisse = {}; fisse.forEach(p => { idFisse[p.id] = p; });
   const daSistemare = attiveP.filter(p => !idFisse[p.id]);
@@ -987,6 +987,9 @@ function Tavolo({ t, occ, selezionato, target, modifica, onClick, onDragStart })
   const lung = 30 + perLato * 30;
   const W = orizz ? lung : 96, H = orizz ? 96 : lung;
   const pieno = occ.posti >= t.posti, parziale = occ.posti > 0 && !pieno;
+  const quanti = occ.ospiti.length;
+  /* con tanti nomi il testo si stringe e il tavolo cresce in altezza: nessun nome nascosto */
+  const fsOsp = quanti <= 3 ? 10 : (quanti <= 5 ? 9 : 8);
   const dots = (n, off) => Array.from({ length: n }, (_, i) => (
     <span key={i} className={"seat" + (off + i < occ.posti ? " full" : "")} />
   ));
@@ -994,19 +997,18 @@ function Tavolo({ t, occ, selezionato, target, modifica, onClick, onDragStart })
     <div
       className={"tavolo" + (orizz ? "" : " v") + (modifica ? " editabile" : "") + (pieno ? " pieno" : parziale ? " parz" : "") +
         (selezionato ? " sel" : "") + (target ? " target" : "")}
-      style={{ left: t.x, top: t.y, width: W, height: H }}
+      style={{ left: t.x, top: t.y, width: W, minHeight: H }}
       onPointerDown={modifica ? (e) => onDragStart(e, t) : undefined}
       onClick={() => onClick(t)}
-      title={t.nome}
+      title={t.nome + (quanti ? " — " + occ.ospiti.map(o => o.nome + " (" + o.posti + ")").join(", ") : " — libero")}
     >
       <div className="seats">{dots(sopra, 0)}</div>
       <div className="body">
         <div className="t-nome"><span>{t.nome}</span><span className="t-occ">{occ.posti}/{t.posti}</span></div>
-        <div className="t-ospiti">
-          {occ.ospiti.slice(0, 3).map(o => (
-            <div key={o.id + o.posti} className="t-osp">{o.arrivata ? "● " : "○ "}<b>{o.nome}</b> {o.posti}</div>
+        <div className="t-ospiti" style={{ fontSize: fsOsp }}>
+          {occ.ospiti.map((o, i) => (
+            <div key={o.id + "-" + i} className="t-osp">{o.arrivata ? "● " : "○ "}<b>{o.nome}</b> {o.posti}</div>
           ))}
-          {occ.ospiti.length > 3 && <div className="t-osp">+{occ.ospiti.length - 3} altri</div>}
         </div>
       </div>
       <div className="seats">{dots(sotto, sopra)}</div>
@@ -1071,6 +1073,22 @@ function App() {
     return { posti, prenotati, seduti, arrivati, daSedere: prenotati - seduti, liberi: posti - seduti };
   }, [attiveList, D.tavoli]);
 
+  /* --- Prenotazioni assegnate a tavoli che non esistono più: sparirebbero dalla piantina --- */
+  const fantasmi = useMemo(() => {
+    const esiste = {};
+    D.tavoli.forEach(t => { esiste[t.id] = true; });
+    return attiveList.filter(p => (p.assegnazioni || []).some(a => !esiste[a.tavolo]));
+  }, [D.tavoli, attiveList]);
+
+  const sistemaFantasmi = () => {
+    const esiste = {};
+    D.tavoli.forEach(t => { esiste[t.id] = true; });
+    const cambi = fantasmi.map(p => ({ ...p, assegnazioni: (p.assegnazioni || []).filter(a => esiste[a.tavolo]) }));
+    D.salvaPrenTante(cambi);
+    D.log("ha liberato " + cambi.length + " prenotazioni da tavoli non più esistenti");
+    mostra(cambi.length + " prenotazioni rimesse fra quelle da sedere");
+  };
+
   /* --- Selezione + assegnazione --- */
   const clickTavolo = (t) => {
     if (drag.current && drag.current.mosso) return;
@@ -1112,8 +1130,10 @@ function App() {
     setModale(null);
     if (!cambi.length) return mostra("La disposizione era già questa");
     D.salvaPrenTante(cambi);
+    const fuori = attiveList.filter(p => (p.pax || 0) > 0 && ass[p.id] && !ass[p.id].length);
     D.log("ha applicato la disposizione automatica \u00ab " + etichetta + " \u00bb a " + cambi.length + " prenotazioni");
-    mostra("Disposizione applicata (" + cambi.length + " prenotazioni)");
+    mostra("Disposizione applicata (" + cambi.length + " prenotazioni)" +
+      (fuori.length ? " — " + fuori.length + " sono rimaste senza posto" : ""));
   };
 
   /* --- Targhette da tavolo: 4 per foglio A4, da ritagliare --- */
@@ -1121,11 +1141,24 @@ function App() {
     if (!window.jspdf || !window.jspdf.jsPDF) return mostra("Libreria PDF non disponibile");
     const tav = D.tavoli.filter(t => (occ[t.id] || {}).posti > 0).sort(ordineTavoli);
     if (!tav.length) return mostra("Nessun tavolo occupato: non ci sono targhette da fare");
+    /* se un tavolo ha tanti nomi si continua su una seconda targhetta, nessuno resta fuori */
+    const PER_TARGHETTA = 10;
+    const blocchi = [];
+    tav.forEach(t => {
+      const o = occ[t.id] || { posti: 0, ospiti: [] };
+      const tutti = o.ospiti.slice().sort((a, b) =>
+        String(a.orario || "99:99").localeCompare(String(b.orario || "99:99")) || String(a.nome).localeCompare(String(b.nome), "it"));
+      const parti = Math.max(1, Math.ceil(tutti.length / PER_TARGHETTA));
+      for (let i = 0; i < parti; i++) {
+        blocchi.push({ t: t, o: o, ospiti: tutti.slice(i * PER_TARGHETTA, (i + 1) * PER_TARGHETTA), parte: i + 1, parti: parti });
+      }
+    });
     const pdf = new window.jspdf.jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const PW = pdf.internal.pageSize.getWidth(), PH = pdf.internal.pageSize.getHeight();
     const CW = PW / 2, CH = PH / 2, M = 9;
 
-    tav.forEach((t, i) => {
+    blocchi.forEach((b, i) => {
+      const t = b.t;
       const k = i % 4;
       if (i > 0 && k === 0) pdf.addPage();
       const ox = (k % 2) * CW, oy = Math.floor(k / 2) * CH;
@@ -1136,9 +1169,7 @@ function App() {
       pdf.rect(ox + 3, oy + 3, CW - 6, CH - 6);
       pdf.setLineDashPattern([], 0);
 
-      const o = occ[t.id] || { posti: 0, ospiti: [] };
-      const ospiti = o.ospiti.slice().sort((a, b) =>
-        String(a.orario || "99:99").localeCompare(String(b.orario || "99:99")) || String(a.nome).localeCompare(String(b.nome), "it"));
+      const o = b.o, ospiti = b.ospiti;
 
       /* testata */
       pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(150);
@@ -1146,22 +1177,23 @@ function App() {
       pdf.setFont("helvetica", "bold"); pdf.setFontSize(34); pdf.setTextColor(25);
       pdf.text(String(t.nome), ox + CW / 2, oy + M + 22, { align: "center" });
       pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(130);
-      pdf.text(o.posti + (o.posti === 1 ? " coperto" : " coperti"), ox + CW / 2, oy + M + 29, { align: "center" });
+      pdf.text(o.posti + (o.posti === 1 ? " coperto" : " coperti") + (b.parti > 1 ? "  ·  foglio " + b.parte + " di " + b.parti : ""),
+        ox + CW / 2, oy + M + 29, { align: "center" });
       pdf.setDrawColor(215); pdf.setLineWidth(0.4);
       pdf.line(ox + M + 4, oy + M + 33, ox + CW - M - 4, oy + M + 33);
 
       /* elenco dei prenotati */
       const top = oy + M + 41, fondo = oy + CH - M - 4;
       const spazio = fondo - top;
-      let fs = 12, lh = 7;
+      let fs = 12, lh = 7.2;
       const larg = CW - 2 * M - 22;
       const righe = ospiti.map(g => ({ g: g, testo: String(g.nome || "") }));
       pdf.setFont("helvetica", "bold");
-      while (fs > 7) {
+      while (fs > 6) {
         pdf.setFontSize(fs);
         const alte = righe.reduce((s, r) => s + Math.min(2, pdf.splitTextToSize(r.testo, larg).length) * lh, 0);
         if (alte <= spazio) break;
-        fs -= 0.7; lh -= 0.35;
+        fs -= 0.6; lh -= 0.32;
       }
       let y = top;
       righe.forEach(r => {
@@ -1177,7 +1209,7 @@ function App() {
 
     pdf.save("targhette-tavoli.pdf");
     D.log("ha stampato le targhette di " + tav.length + " tavoli");
-    mostra("Targhette pronte: " + tav.length + " tavoli");
+    mostra("Targhette pronte: " + tav.length + " tavoli su " + blocchi.length + (blocchi.length === 1 ? " foglietto" : " foglietti"));
   };
 
   /* --- Spostamento tavoli --- */
@@ -1377,15 +1409,21 @@ function App() {
         pdf.text(String(t.nome), X + 1.6, Y + 4.4);
         pdf.text(o.posti + "/" + t.posti, X + W - 1.6, Y + 4.4, { align: "right" });
 
-        pdf.setFont("helvetica", "normal"); pdf.setFontSize(5.8); pdf.setTextColor(70);
-        let ty = Y + 8;
-        o.ospiti.slice(0, 4).forEach(osp => {
-          if (ty > Y + H - 1.5) return;
-          const riga = (osp.arrivata ? "\u2022 " : "o ") + osp.nome + " " + osp.posti;
-          pdf.text(pdf.splitTextToSize(riga, W - 3)[0], X + 1.6, ty);
-          ty += 3;
-        });
-        if (o.ospiti.length > 4 && ty <= Y + H - 1.5) pdf.text("+" + (o.ospiti.length - 4) + " altri", X + 1.6, ty);
+        /* i nomi si rimpiccioliscono finché ci stanno tutti nel riquadro */
+        if (o.ospiti.length) {
+          const dispo = H - 7.5;
+          let fs = 5.8, rh = 3;
+          while (fs > 3.4 && o.ospiti.length * rh > dispo) { fs -= 0.3; rh -= 0.16; }
+          const quanti = Math.max(1, Math.min(o.ospiti.length, Math.floor(dispo / rh)));
+          pdf.setFont("helvetica", "normal"); pdf.setFontSize(fs); pdf.setTextColor(70);
+          let ty = Y + 7.4;
+          o.ospiti.slice(0, quanti).forEach(osp => {
+            const riga = (osp.arrivata ? "\u2022 " : "o ") + osp.nome + " " + osp.posti;
+            pdf.text(pdf.splitTextToSize(riga, W - 3)[0], X + 1.6, ty);
+            ty += rh;
+          });
+          if (o.ospiti.length > quanti) pdf.text("+" + (o.ospiti.length - quanti) + " altri", X + 1.6, ty);
+        }
       });
 
       pdf.setFontSize(7.5); pdf.setTextColor(120);
@@ -1558,6 +1596,13 @@ function App() {
               {isAdmin && <button className="btn sm" onClick={() => setModale({ tipo: "auto" })}>Disponi in automatico</button>}
               <button className="btn ghost sm" onClick={esportaTarghette}>Targhette tavoli</button>
               <div className="spacer" />
+              {fantasmi.length > 0 && (
+                <button className="btn ghost sm" style={{ color: "var(--rosso)", borderColor: "rgba(228,91,109,.45)" }}
+                  onClick={sistemaFantasmi}
+                  title={fantasmi.map(p => p.nome).join(", ")}>
+                  {fantasmi.length} su tavoli spariti — sistema
+                </button>
+              )}
               <span className="hint">{sel ? "Tocca un tavolo per sedere la prenotazione selezionata" : "Tocca un tavolo per vederne il dettaglio"}</span>
             </div>
 
@@ -1650,6 +1695,12 @@ function App() {
             ))}
             {totali.seduti === 0 && <p className="hint">Nessun tavolo occupato.</p>}
           </div>
+          {attiveList.filter(p => daSedere(p) > 0).length > 0 && (
+            <p className="hint" style={{ marginTop: 12 }}>
+              <b style={{ color: "var(--rosso)" }}>Non ancora a tavola:</b>{" "}
+              {attiveList.filter(p => daSedere(p) > 0).map(p => p.nome + " (" + daSedere(p) + ")").join(", ")}
+            </p>
+          )}
         </div>
       )}
 
