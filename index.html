@@ -151,7 +151,7 @@
   .pren-nome{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pax{font-family:"IBM Plex Mono",monospace;font-weight:600;color:var(--amber)}
   .pren-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:5px;font-size:11px;color:var(--muted);align-items:center}
-  .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:1px 6px;white-space:nowrap;line-height:1.5}
   .tag.seat{border-color:rgba(242,160,61,.45);color:var(--amber)}
   .tag.ricavo{border-color:rgba(79,195,161,.45);color:var(--verde)}
   .tag.costo{border-color:rgba(228,91,109,.45);color:var(--rosso)}
@@ -1073,6 +1073,16 @@ function App() {
     return { posti, prenotati, seduti, arrivati, daSedere: prenotati - seduti, liberi: posti - seduti };
   }, [attiveList, D.tavoli]);
 
+  /* --- Nome del tavolo a partire dal suo codice interno ---
+     I tavoli creati a mano hanno un codice casuale diverso dal nome: va sempre mostrato il nome. */
+  const nomiTavolo = useMemo(() => {
+    const m = {};
+    D.tavoli.forEach(t => { m[t.id] = t.nome || t.id; });
+    return m;
+  }, [D.tavoli]);
+  const nomeTav = (id) => nomiTavolo[id] || "tavolo rimosso";
+  const tavoliDiPren = (p) => (p.assegnazioni || []).map(a => nomeTav(a.tavolo) + "(" + a.posti + ")").join(" ") || "—";
+
   /* --- Prenotazioni assegnate a tavoli che non esistono più: sparirebbero dalla piantina --- */
   const fantasmi = useMemo(() => {
     const esiste = {};
@@ -1113,8 +1123,8 @@ function App() {
     const p = D.prenotazioni.find(x => x.id === pid);
     if (!p) return;
     D.salvaPren({ ...p, assegnazioni: (p.assegnazioni || []).filter(a => a.tavolo !== tid) });
-    D.log("ha tolto " + p.nome + " dal tavolo " + tid);
-    mostra(p.nome + " tolto da " + tid);
+    D.log("ha tolto " + p.nome + " dal tavolo " + nomeTav(tid));
+    mostra(p.nome + " tolto da " + nomeTav(tid));
   };
 
   /* --- Disposizione automatica: applica la proposta scelta --- */
@@ -1229,7 +1239,7 @@ function App() {
     D.salvaPiantina(D.tavoli.map(t => (t.id === drag.current.id ? { ...t, x, y } : t)));
   };
   const dragEnd = () => {
-    if (drag.current && drag.current.mosso) D.log("ha spostato il tavolo " + drag.current.id + " sulla piantina");
+    if (drag.current && drag.current.mosso) D.log("ha spostato il tavolo " + nomeTav(drag.current.id) + " sulla piantina");
     setTimeout(() => { drag.current = null; }, 50);
   };
 
@@ -1270,7 +1280,7 @@ function App() {
       (a.orario || "99:99").localeCompare(b.orario || "99:99") || (a.nome || "").localeCompare(b.nome || ""));
     const sotto = "Stampato il " + oggi + " · " + elenco.length + " prenotazioni · " +
       totali.prenotati + " coperti · " + totali.seduti + " seduti · " + totali.daSedere + " da sedere";
-    const tavoliDi = (p) => (p.assegnazioni || []).map(a => a.tavolo + "(" + a.posti + ")").join(" ") || "—";
+    const tavoliDi = tavoliDiPren;
     let y = 0;
 
     const intestazione = (titolo) => {
@@ -1450,7 +1460,7 @@ function App() {
     const righe = [["Nome", "Persone", "Orario", "Tavoli", "Telefono", "Stato", "Note"]];
     D.prenotazioni.forEach(p => righe.push([
       p.nome, p.pax, p.orario || "",
-      (p.assegnazioni || []).map(a => a.tavolo + "(" + a.posti + ")").join(" "),
+      (p.assegnazioni || []).map(a => nomeTav(a.tavolo) + "(" + a.posti + ")").join(" "),
       p.telefono || "", p.stato || "attesa", (p.note || "").replace(/[\n;]/g, " ")
     ]));
     const csv = righe.map(r => r.join(";")).join("\n");
@@ -1559,7 +1569,7 @@ function App() {
                     </div>
                     <div className="pren-meta">
                       {p.orario && <span className="tag">ore {p.orario}</span>}
-                      {(p.assegnazioni || []).map(a => <span key={a.tavolo} className="tag seat">{a.tavolo} · {a.posti}</span>)}
+                      {(p.assegnazioni || []).map(a => <span key={a.tavolo} className="tag seat">{nomeTav(a.tavolo)} · {a.posti}</span>)}
                       {resta > 0 && <span className="tag">{resta} da sedere</span>}
                       {(p.vicini || []).length > 0 && <span className="tag" title="Vincoli di vicinanza">↔ {(p.vicini || []).length}</span>}
                       {p.stato === "arrivata" && <span className="tag" style={{ color: "var(--verde)", borderColor: "rgba(79,195,161,.4)" }}>arrivata</span>}
@@ -1654,7 +1664,7 @@ function App() {
                   <td data-label="Nome"><b>{p.walkIn ? "◇ " : ""}{p.nome}</b></td>
                   <td className="num" data-label="Persone">{p.pax}</td>
                   <td className="num" data-label="Orario">{p.orario || "—"}</td>
-                  <td className="num" data-label="Tavoli">{(p.assegnazioni || []).map(a => a.tavolo + "(" + a.posti + ")").join(" ") || "—"}</td>
+                  <td className="num" data-label="Tavoli">{tavoliDiPren(p)}</td>
                   <td data-label="Telefono">{p.telefono || "—"}</td>
                   <td data-label="Stato">{p.stato || "attesa"}</td>
                   <td className="hint" data-label="Note">{p.note || ""}</td>
@@ -1681,7 +1691,7 @@ function App() {
             <button className="btn ghost sm no-print" onClick={() => window.print()}>Stampa</button>
           </div>
           <div className="srv-grid">
-            {D.tavoli.filter(t => (occ[t.id] || {}).posti > 0).map(t => (
+            {D.tavoli.filter(t => (occ[t.id] || {}).posti > 0).sort(ordineTavoli).map(t => (
               <div key={t.id} className="srv">
                 <h3><span>{t.nome}</span><span className="num">{occ[t.id].posti}/{t.posti}</span></h3>
                 <ul>
@@ -1741,8 +1751,11 @@ function App() {
             </div>
             <div className="row" style={{ marginTop: 12 }}>
               <button className="btn ghost sm" onClick={() => {
-                const nome = prompt("Nome del nuovo tavolo:", "T" + (D.tavoli.length + 1));
+                const usati = {}; D.tavoli.forEach(t => { usati[String(t.nome).toUpperCase()] = true; });
+                let k = 1; while (usati["T" + k]) k++;
+                const nome = prompt("Nome del nuovo tavolo:", "T" + k);
                 if (!nome) return;
+                if (usati[nome.trim().toUpperCase()]) return alert("Esiste già un tavolo che si chiama " + nome.trim() + ".");
                 D.salvaPiantina([...D.tavoli, { id: uid(), nome, posti: 8, orient: "h", x: 40, y: 40 }]);
               }}>Aggiungi tavolo</button>
             </div>
