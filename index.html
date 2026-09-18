@@ -153,11 +153,11 @@
   .pren-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:5px;font-size:11px;color:var(--muted);align-items:center}
   .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:2px 7px;white-space:nowrap;line-height:1.5;flex:0 0 auto}
   .tag.manca{color:var(--rosso);border-color:rgba(228,91,109,.5)}
-  .tag.seat.clic{cursor:pointer}
-  .tag.seat.clic:hover{background:var(--amber-soft);border-color:var(--amber)}
+  .tag.tvl.clic{cursor:pointer}
+  .tag.tvl.clic:hover{background:var(--amber-soft);border-color:var(--amber)}
   .plan-cerca{width:180px;flex:0 0 auto;padding:6px 10px;font-size:13px}
   .plan-avviso{flex:0 0 auto;display:flex;align-items:center;gap:8px;background:rgba(228,91,109,.12);border:1px solid rgba(228,91,109,.45);border-radius:8px;padding:4px 6px 4px 10px;font-size:12px;color:var(--rosso)}
-  .tag.seat{border-color:rgba(242,160,61,.45);color:var(--amber)}
+  .tag.tvl{border-color:rgba(242,160,61,.45);color:var(--amber)}
   .tag.ricavo{border-color:rgba(79,195,161,.45);color:var(--verde)}
   .tag.costo{border-color:rgba(228,91,109,.45);color:var(--rosso)}
   .pren-actions{display:flex;gap:5px;margin-top:8px}
@@ -1182,6 +1182,32 @@ function App() {
     mostra(sovrapposti.length + " tavoli separati: ora si vedono tutti");
   };
 
+  /* --- Rimette tutti i tavoli in una griglia regolare --- */
+  const riordinaGriglia = () => {
+    if (!D.tavoli.length) return mostra("Non ci sono tavoli");
+    if (!confirm("Rimettere tutti i " + D.tavoli.length + " tavoli in una griglia ordinata, 6 per fila?\n\n" +
+      "Si spostano solo i riquadri sulla piantina: nessuna prenotazione cambia tavolo."))
+      return;
+    const ord = D.tavoli.slice().sort(ordineTavoli);
+    const pos = {};
+    ord.forEach((t, i) => { pos[t.id] = { x: 40 + (i % 6) * 230, y: 40 + Math.floor(i / 6) * 135 }; });
+    D.salvaPiantina(D.tavoli.map(t => ({ ...t, ...pos[t.id] })));
+    D.log("ha rimesso i tavoli in griglia");
+    mostra("Tavoli rimessi in griglia");
+  };
+
+  /* --- Toglie tutte le prenotazioni dai tavoli, senza cancellarle --- */
+  const svuotaTavoli = () => {
+    const piene = attiveList.filter(p => postiAssegnati(p) > 0);
+    if (!piene.length) return mostra("I tavoli sono già tutti liberi");
+    if (!confirm("Togliere dai tavoli tutte le " + piene.length + " prenotazioni già sistemate?\n\n" +
+      "Le prenotazioni NON vengono cancellate: tornano fra quelle da sedere e la piantina resta vuota."))
+      return;
+    D.salvaPrenTante(piene.map(p => ({ ...p, assegnazioni: [] })));
+    D.log("ha svuotato tutti i tavoli (" + piene.length + " prenotazioni rimesse da sedere)");
+    mostra("Tavoli svuotati: " + piene.length + " prenotazioni da risistemare");
+  };
+
   /* --- Rinumera i tavoli seguendo la piantina: cambiano solo i nomi --- */
   const rinumeraTavoli = () => {
     if (!D.tavoli.length) return mostra("Non ci sono tavoli da rinumerare");
@@ -1667,7 +1693,7 @@ function App() {
                     <div className="pren-meta">
                       {p.orario && <span className="tag">ore {p.orario}</span>}
                       {(p.assegnazioni || []).map(a => (
-                        <span key={a.tavolo} className={"tag seat" + (nomiTavolo[a.tavolo] ? " clic" : " manca")}
+                        <span key={a.tavolo} className={"tag tvl" + (nomiTavolo[a.tavolo] ? " clic" : " manca")}
                           title={nomiTavolo[a.tavolo] ? "Mostra " + nomiTavolo[a.tavolo] + " sulla piantina" : "Questo tavolo non esiste più"}
                           onClick={e => { if (nomiTavolo[a.tavolo]) { e.stopPropagation(); setCercaTav(nomiTavolo[a.tavolo]); } }}>
                           {nomiTavolo[a.tavolo] ? nomiTavolo[a.tavolo] : "⚠ tavolo sparito"} · {a.posti}
@@ -1706,6 +1732,7 @@ function App() {
               <span className="num" style={{ minWidth: 42, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
               <button className="btn ghost sm" onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))}>+</button>
               <button className="btn ghost sm" onClick={adatta}>Adatta</button>
+              {isAdmin && modifica && <button className="btn ghost sm" onClick={riordinaGriglia}>Rimetti in griglia</button>}
               {isAdmin && modifica && <button className="btn ghost sm" onClick={rinumeraTavoli}>Rinumera in ordine</button>}
               {isAdmin && <button className="btn sm" onClick={() => setModale({ tipo: "auto" })}>Disponi in automatico</button>}
               <button className="btn ghost sm" onClick={esportaTarghette}>Targhette tavoli</button>
@@ -1876,7 +1903,10 @@ function App() {
                 const pos = postoLibero(D.tavoli, modello);
                 D.salvaPiantina([...D.tavoli, { ...modello, ...pos }]);
               }}>Aggiungi tavolo</button>
+              <button className="btn ghost sm" onClick={riordinaGriglia}>Rimetti in griglia</button>
               <button className="btn ghost sm" onClick={rinumeraTavoli}>Rinumera in ordine</button>
+              <button className="btn ghost sm" style={{ color: "var(--rosso)", borderColor: "rgba(228,91,109,.45)" }}
+                onClick={svuotaTavoli}>Svuota tutti i tavoli</button>
             </div>
           </div>
           <div className="panel">
