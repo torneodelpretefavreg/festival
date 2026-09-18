@@ -151,7 +151,12 @@
   .pren-nome{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pax{font-family:"IBM Plex Mono",monospace;font-weight:600;color:var(--amber)}
   .pren-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:5px;font-size:11px;color:var(--muted);align-items:center}
-  .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:1px 6px;white-space:nowrap;line-height:1.5}
+  .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:2px 7px;white-space:nowrap;line-height:1.5;flex:0 0 auto}
+  .tag.manca{color:var(--rosso);border-color:rgba(228,91,109,.5)}
+  .tag.seat.clic{cursor:pointer}
+  .tag.seat.clic:hover{background:var(--amber-soft);border-color:var(--amber)}
+  .plan-cerca{width:180px;flex:0 0 auto;padding:6px 10px;font-size:13px}
+  .plan-avviso{flex:0 0 auto;display:flex;align-items:center;gap:8px;background:rgba(228,91,109,.12);border:1px solid rgba(228,91,109,.45);border-radius:8px;padding:4px 6px 4px 10px;font-size:12px;color:var(--rosso)}
   .tag.seat{border-color:rgba(242,160,61,.45);color:var(--amber)}
   .tag.ricavo{border-color:rgba(79,195,161,.45);color:var(--verde)}
   .tag.costo{border-color:rgba(228,91,109,.45);color:var(--rosso)}
@@ -197,6 +202,9 @@
   .tavolo.pieno .body{background:linear-gradient(160deg,#8A5F24,#5C3F1C);border-color:var(--amber)}
   .tavolo.sel .body{outline:2px solid var(--amber);outline-offset:2px}
   .tavolo.target .body{outline:2px dashed var(--verde);outline-offset:2px}
+  .tavolo.spenta{opacity:.16}
+  .tavolo.trovato{z-index:5}
+  .tavolo.trovato .body{outline:3px solid var(--verde);outline-offset:3px;box-shadow:0 0 0 7px rgba(79,195,161,.14)}
   .t-nome{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;display:flex;justify-content:space-between;gap:6px;opacity:.9}
   .t-occ{color:var(--amber)}
   .tavolo.pieno .t-occ{color:#FFD9A6}
@@ -980,7 +988,7 @@ function proponiDisposizioni(tavoli, prenotazioni, mantieni) {
 /* =========================================================
    Componente tavolo
    ========================================================= */
-function Tavolo({ t, occ, selezionato, target, modifica, onClick, onDragStart }) {
+function Tavolo({ t, occ, selezionato, target, trovato, spento, modifica, onClick, onDragStart }) {
   const perLato = Math.ceil(t.posti / 2);
   const sopra = perLato, sotto = t.posti - perLato;
   const orizz = t.orient !== "v";
@@ -996,7 +1004,7 @@ function Tavolo({ t, occ, selezionato, target, modifica, onClick, onDragStart })
   return (
     <div
       className={"tavolo" + (orizz ? "" : " v") + (modifica ? " editabile" : "") + (pieno ? " pieno" : parziale ? " parz" : "") +
-        (selezionato ? " sel" : "") + (target ? " target" : "")}
+        (selezionato ? " sel" : "") + (target ? " target" : "") + (trovato ? " trovato" : "") + (spento ? " spenta" : "")}
       style={{ left: t.x, top: t.y, width: W, minHeight: H }}
       onPointerDown={modifica ? (e) => onDragStart(e, t) : undefined}
       onClick={() => onClick(t)}
@@ -1052,6 +1060,7 @@ function App() {
   const [modifica, setModifica] = useState(false); // sposta tavoli
   const [zoom, setZoom] = useState(() => (window.innerWidth <= 760 ? 0.5 : 0.85));
   const [cerca, setCerca] = useState("");
+  const [cercaTav, setCercaTav] = useState("");
   const [filtro, setFiltro] = useState("tutte");
   const [modale, setModale] = useState(null);
   const [toast, setToast] = useState("");
@@ -1082,6 +1091,34 @@ function App() {
   }, [D.tavoli]);
   const nomeTav = (id) => nomiTavolo[id] || "tavolo rimosso";
   const tavoliDiPren = (p) => (p.assegnazioni || []).map(a => nomeTav(a.tavolo) + "(" + a.posti + ")").join(" ") || "—";
+
+  /* --- Ricerca sulla piantina: isola i tavoli che corrispondono --- */
+  const trovati = useMemo(() => {
+    const q = cercaTav.trim().toLowerCase();
+    if (!q) return null;
+    const s = {};
+    let n = 0;
+    D.tavoli.forEach(t => {
+      const o = occ[t.id] || { ospiti: [] };
+      const dentro = String(t.nome || "").toLowerCase().includes(q) ||
+        o.ospiti.some(x => String(x.nome || "").toLowerCase().includes(q));
+      if (dentro) { s[t.id] = true; n++; }
+    });
+    s.__n = n;
+    return s;
+  }, [cercaTav, D.tavoli, occ]);
+
+  /* porta in vista il primo tavolo trovato */
+  useEffect(() => {
+    if (!trovati || !trovati.__n || !wrapRef.current) return;
+    const t = D.tavoli.filter(x => trovati[x.id]).sort(ordineTavoli)[0];
+    if (!t) return;
+    try {
+      wrapRef.current.scrollTo({
+        left: Math.max(0, t.x * zoom - 120), top: Math.max(0, t.y * zoom - 120), behavior: "smooth"
+      });
+    } catch (e) { }
+  }, [trovati]);
 
   /* --- Prenotazioni assegnate a tavoli che non esistono più: sparirebbero dalla piantina --- */
   const fantasmi = useMemo(() => {
@@ -1569,7 +1606,13 @@ function App() {
                     </div>
                     <div className="pren-meta">
                       {p.orario && <span className="tag">ore {p.orario}</span>}
-                      {(p.assegnazioni || []).map(a => <span key={a.tavolo} className="tag seat">{nomeTav(a.tavolo)} · {a.posti}</span>)}
+                      {(p.assegnazioni || []).map(a => (
+                        <span key={a.tavolo} className={"tag seat" + (nomiTavolo[a.tavolo] ? " clic" : " manca")}
+                          title={nomiTavolo[a.tavolo] ? "Mostra " + nomiTavolo[a.tavolo] + " sulla piantina" : "Questo tavolo non esiste più"}
+                          onClick={e => { if (nomiTavolo[a.tavolo]) { e.stopPropagation(); setCercaTav(nomiTavolo[a.tavolo]); } }}>
+                          {nomiTavolo[a.tavolo] ? nomiTavolo[a.tavolo] : "⚠ tavolo sparito"} · {a.posti}
+                        </span>
+                      ))}
                       {resta > 0 && <span className="tag">{resta} da sedere</span>}
                       {(p.vicini || []).length > 0 && <span className="tag" title="Vincoli di vicinanza">↔ {(p.vicini || []).length}</span>}
                       {p.stato === "arrivata" && <span className="tag" style={{ color: "var(--verde)", borderColor: "rgba(79,195,161,.4)" }}>arrivata</span>}
@@ -1605,13 +1648,17 @@ function App() {
               <button className="btn ghost sm" onClick={adatta}>Adatta</button>
               {isAdmin && <button className="btn sm" onClick={() => setModale({ tipo: "auto" })}>Disponi in automatico</button>}
               <button className="btn ghost sm" onClick={esportaTarghette}>Targhette tavoli</button>
+              <input className="plan-cerca" value={cercaTav} onChange={e => setCercaTav(e.target.value)}
+                placeholder="Cerca tavolo o nome…" />
+              {cercaTav.trim() !== "" && <span className="hint">{(trovati && trovati.__n) || 0} trovati</span>}
+              {cercaTav.trim() !== "" && <button className="btn ghost sm" onClick={() => setCercaTav("")}>×</button>}
               <div className="spacer" />
               {fantasmi.length > 0 && (
-                <button className="btn ghost sm" style={{ color: "var(--rosso)", borderColor: "rgba(228,91,109,.45)" }}
-                  onClick={sistemaFantasmi}
-                  title={fantasmi.map(p => p.nome).join(", ")}>
-                  {fantasmi.length} su tavoli spariti — sistema
-                </button>
+                <span className="plan-avviso" title={fantasmi.map(p => p.nome).join(", ")}>
+                  ⚠ {fantasmi.length} {fantasmi.length === 1 ? "prenotazione è" : "prenotazioni sono"} su tavoli che non esistono più
+                  <button className="btn ghost sm" style={{ color: "var(--rosso)", borderColor: "rgba(228,91,109,.45)" }}
+                    onClick={sistemaFantasmi}>Sistema</button>
+                </span>
               )}
               <span className="hint">{sel ? "Tocca un tavolo per sedere la prenotazione selezionata" : "Tocca un tavolo per vederne il dettaglio"}</span>
             </div>
@@ -1624,6 +1671,7 @@ function App() {
                 {D.tavoli.map(t => (
                   <Tavolo key={t.id} t={t} occ={occ[t.id] || { posti: 0, ospiti: [] }}
                     selezionato={false} target={!!sel && (occ[t.id] ? occ[t.id].posti : 0) < t.posti}
+                    trovato={!!(trovati && trovati[t.id])} spento={!!(trovati && trovati.__n && !trovati[t.id])}
                     modifica={modifica && isAdmin} onClick={clickTavolo} onDragStart={dragStart} />
                 ))}
               </div>
@@ -1758,6 +1806,18 @@ function App() {
                 if (usati[nome.trim().toUpperCase()]) return alert("Esiste già un tavolo che si chiama " + nome.trim() + ".");
                 D.salvaPiantina([...D.tavoli, { id: uid(), nome, posti: 8, orient: "h", x: 40, y: 40 }]);
               }}>Aggiungi tavolo</button>
+              <button className="btn ghost sm" onClick={() => {
+                if (!D.tavoli.length) return mostra("Non ci sono tavoli da rinumerare");
+                if (!confirm("Rinumerare i tavoli da T1 a T" + D.tavoli.length +
+                  " seguendo l'ordine della piantina (da sinistra a destra, dall'alto in basso)?\n\nCambiano solo i nomi: le prenotazioni restano sui loro tavoli."))
+                  return;
+                const ord = D.tavoli.slice().sort(ordineTavoli);
+                const nuovi = {};
+                ord.forEach((t, i) => { nuovi[t.id] = "T" + (i + 1); });
+                D.salvaPiantina(D.tavoli.map(t => ({ ...t, nome: nuovi[t.id] })));
+                D.log("ha rinumerato i tavoli seguendo l'ordine della piantina");
+                mostra("Tavoli rinumerati da T1 a T" + D.tavoli.length);
+              }}>Rinumera in ordine</button>
             </div>
           </div>
           <div className="panel">
