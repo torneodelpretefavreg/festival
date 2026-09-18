@@ -251,6 +251,12 @@
   .ant-tav h4 .num{font-family:"IBM Plex Mono",monospace;color:var(--amber)}
   .ant-osp{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
   .ant-osp .num{font-family:"IBM Plex Mono",monospace;font-style:normal}
+  .vincoli-esito{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+  .vinc{display:flex;justify-content:space-between;gap:10px;font-size:12px;background:var(--surface-2);border:1px solid var(--line);border-left-width:3px;border-radius:7px;padding:5px 9px}
+  .vinc span{color:var(--muted)}
+  .vinc.insieme{border-left-color:var(--verde)}
+  .vinc.accanto{border-left-color:var(--amber)}
+  .vinc.lontano{border-left-color:var(--rosso)}
   .modal h3{font-family:"Bricolage Grotesque",sans-serif;margin:0 0 12px;font-size:17px}
 
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;padding:10px 18px;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.5)}
@@ -789,16 +795,20 @@ const distanzaTavoli = (a, b) => {
   const ca = centroTavolo(a), cb = centroTavolo(b);
   return Math.sqrt((ca.x - cb.x) * (ca.x - cb.x) + (ca.y - cb.y) * (ca.y - cb.y));
 };
-/* quanto devono essere lontani due tavoli per non dirsi "accanto":
-   mediana della distanza dal vicino più prossimo, con un margine */
+/* Fino a che distanza due tavoli si dicono "accanto".
+   Si guarda, per ogni tavolo, quanto dista il suo quarto tavolo più vicino:
+   in una griglia sono sopra, sotto, a destra e a sinistra, quindi la misura
+   comprende sia i vicini di fila che quelli di colonna. */
 function sogliaVicinanza(tavoli) {
   if (tavoli.length < 2) return 0;
+  const k = Math.min(4, tavoli.length - 1);
   const d = tavoli.map(t => {
-    let m = Infinity;
-    tavoli.forEach(x => { if (x.id !== t.id) m = Math.min(m, distanzaTavoli(t, x)); });
-    return m;
+    const dist = [];
+    tavoli.forEach(x => { if (x.id !== t.id) dist.push(distanzaTavoli(t, x)); });
+    dist.sort((a, b) => a - b);
+    return dist[k - 1];
   }).sort((a, b) => a - b);
-  return d[Math.floor(d.length / 2)] * 1.6;
+  return d[Math.floor(d.length / 2)] * 1.08;
 }
 const rettTavolo = (t) => {
   const d = dimTavolo(t);
@@ -927,20 +937,28 @@ function valutaDisposizione(ass, tavoli, lista, coppie, soglia) {
     a.forEach(x => { sistemati += x.posti; perTav[x.tavolo] = (perTav[x.tavolo] || 0) + x.posti; });
   });
   let insieme = 0, accanto = 0, lontano = 0;
+  const dettaglio = [];
   coppie.forEach(c => {
     const ta = (ass[c[0]] || []).map(x => x.tavolo), tb = (ass[c[1]] || []).map(x => x.tavolo);
-    if (!ta.length || !tb.length) { lontano++; return; }
-    if (ta.some(x => tb.indexOf(x) >= 0)) { insieme++; return; }
-    let d = Infinity;
-    ta.forEach(x => tb.forEach(y => {
-      if (mappa[x] && mappa[y]) d = Math.min(d, distanzaTavoli(mappa[x], mappa[y]));
-    }));
-    if (d <= soglia) accanto++; else lontano++;
+    let stato = "lontano";
+    if (ta.length && tb.length) {
+      if (ta.some(x => tb.indexOf(x) >= 0)) stato = "insieme";
+      else {
+        let d = Infinity;
+        ta.forEach(x => tb.forEach(y => {
+          if (mappa[x] && mappa[y]) d = Math.min(d, distanzaTavoli(mappa[x], mappa[y]));
+        }));
+        if (d <= soglia) stato = "accanto";
+      }
+    }
+    if (stato === "insieme") insieme++; else if (stato === "accanto") accanto++; else lontano++;
+    const tv = (l) => l.map(x => (mappa[x] ? mappa[x].nome : "?")).join("+");
+    dettaglio.push({ a: c[0], b: c[1], stato: stato, tavA: tv(ta), tavB: tv(tb) });
   });
   const tavoliUsati = Object.keys(perTav).length;
   const nonSistemati = Math.max(0, totale - sistemati);
   return {
-    sistemati, nonSistemati, spezzate, insieme, accanto, lontano, tavoliUsati, perTav,
+    sistemati, nonSistemati, spezzate, insieme, accanto, lontano, tavoliUsati, perTav, dettaglio,
     punteggio: nonSistemati * 100 + spezzate * 8 + lontano * 30 + accanto * 6 + tavoliUsati * 0.5
   };
 }
@@ -1700,7 +1718,12 @@ function App() {
                         </span>
                       ))}
                       {resta > 0 && <span className="tag">{resta} da sedere</span>}
-                      {(p.vicini || []).length > 0 && <span className="tag" title="Vincoli di vicinanza">↔ {(p.vicini || []).length}</span>}
+                      {(p.vicini || []).length > 0 && (
+                        <span className="tag" title={"Vicino a: " + (p.vicini || []).map(id => {
+                          const v = D.prenotazioni.find(x => x.id === id);
+                          return v ? v.nome : "?";
+                        }).join(", ")}>↔ {(p.vicini || []).length}</span>
+                      )}
                       {p.stato === "arrivata" && <span className="tag" style={{ color: "var(--verde)", borderColor: "rgba(79,195,161,.4)" }}>arrivata</span>}
                       {p.telefono && <span>{p.telefono}</span>}
                     </div>
@@ -3246,7 +3269,7 @@ function ModaleAuto({ tavoli, prenotazioni, onApplica, onChiudi }) {
                 <i className="num">{x.stat.tavoliUsati}</i> tavoli · <i className="num">{x.stat.spezzate}</i> divise
               </span>
               <span className={"opz-vinc " + (x.stat.lontano ? "ko" : "ok")}>
-                vincoli: {x.stat.insieme} insieme, {x.stat.accanto} accanto, {x.stat.lontano} lontani
+                vicinanze: {x.stat.insieme} stesso tavolo · {x.stat.accanto} tavoli vicini · {x.stat.lontano} non riuscite
               </span>
               {x.stat.nonSistemati > 0 && <span className="opz-fuori">{x.stat.nonSistemati} coperti senza posto</span>}
             </button>
@@ -3274,6 +3297,21 @@ function ModaleAuto({ tavoli, prenotazioni, onApplica, onChiudi }) {
                     {x.ospiti.map((o, i) => (
                       <div key={o.pid + "-" + i} className="ant-osp">{nomeDi(o.pid)} <i className="num">{o.posti}</i></div>
                     ))}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {v.stat.dettaglio.length > 0 && (
+              <div className="vincoli-esito">
+                {v.stat.dettaglio.map((d, i) => (
+                  <div key={i} className={"vinc " + d.stato}>
+                    <b>{nomeDi(d.a)}</b> + <b>{nomeDi(d.b)}</b>
+                    <span>{d.stato === "insieme"
+                      ? "stesso tavolo (" + d.tavA + ")"
+                      : d.stato === "accanto"
+                        ? "tavoli vicini (" + d.tavA + " e " + d.tavB + ")"
+                        : "non riuscita" + (d.tavA && d.tavB ? " (" + d.tavA + " e " + d.tavB + ")" : "")}</span>
                   </div>
                 ))}
               </div>
