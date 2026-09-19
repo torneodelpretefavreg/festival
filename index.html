@@ -25,6 +25,10 @@
     --r:10px;
     --tela:#0E0D14;
     --legno-a:#4A3826; --legno-b:#3A2C1E;
+    --tl-a:#4A3826; --tl-b:#3A2C1E; --tl-bordo:#3A2C1E;
+    --tp-a:#6A4F2C; --tp-b:#4A3826; --tp-bordo:#6A4F2C;
+    --tf-a:#8A5F24; --tf-b:#5C3F1C; --tf-bordo:#F2A03D;
+    --t-testo:#EFE9DE; --t-occ:#F2A03D; --t-occ-pieno:#FFD9A6; --t-ombra:rgba(0,0,0,.35);
   }
   html[data-tema="chiaro"]{
     --ink:#F5F2EB;
@@ -41,8 +45,14 @@
     --rosso:#C63C4E;
     --tela:#ECE7DC;
     --legno-a:#B99164; --legno-b:#A67F53;
+    --tl-a:#FFFFFF; --tl-b:#F8F4EC; --tl-bordo:#D6CCBA;
+    --tp-a:#FCEDD6; --tp-b:#F7DFBC; --tp-bordo:#E2B878;
+    --tf-a:#F2CD92; --tf-b:#E9B66E; --tf-bordo:#C0761A;
+    --t-testo:#2A2016; --t-occ:#9A5A0E; --t-occ-pieno:#5E3304; --t-ombra:rgba(60,40,10,.12);
   }
-  html[data-tema="chiaro"] .btn{color:#FFF8EC}
+  html[data-tema="chiaro"] .btn:not(.ghost):not(.danger){color:#FFF8EC}
+  html[data-tema="chiaro"]{color-scheme:light}
+  html[data-tema="chiaro"] .orario-mini{color-scheme:light}
   html[data-tema="chiaro"] .banner{color:#FFF8EC}
   html[data-tema="chiaro"] .top{background:linear-gradient(180deg,var(--ink) 72%,rgba(245,242,235,.86))}
   *{box-sizing:border-box}
@@ -193,21 +203,34 @@
   .seat.full{background:var(--amber);border-color:var(--amber)}
   .t2 .seat.full{background:var(--viola);border-color:var(--viola)}
   .body{
-    flex:1;border-radius:6px;border:1px solid var(--legno-b);
-    background:linear-gradient(160deg,var(--legno-a),var(--legno-b));
+    flex:1;border-radius:6px;border:1px solid var(--tl-bordo);color:var(--t-testo);
+    background:linear-gradient(160deg,var(--tl-a),var(--tl-b));
     padding:5px 7px;display:flex;flex-direction:column;gap:2px;justify-content:center;
-    box-shadow:0 2px 0 rgba(0,0,0,.35);overflow:hidden;
+    box-shadow:0 2px 0 var(--t-ombra);overflow:hidden;
   }
-  .tavolo.parz .body{background:linear-gradient(160deg,#6A4F2C,#4A3826)}
-  .tavolo.pieno .body{background:linear-gradient(160deg,#8A5F24,#5C3F1C);border-color:var(--amber)}
+  .tavolo.parz .body{background:linear-gradient(160deg,var(--tp-a),var(--tp-b));border-color:var(--tp-bordo)}
+  .tavolo.pieno .body{background:linear-gradient(160deg,var(--tf-a),var(--tf-b));border-color:var(--tf-bordo)}
   .tavolo.sel .body{outline:2px solid var(--amber);outline-offset:2px}
   .tavolo.target .body{outline:2px dashed var(--verde);outline-offset:2px}
   .tavolo.spenta{opacity:.16}
   .tavolo.trovato{z-index:5}
   .tavolo.trovato .body{outline:3px solid var(--verde);outline-offset:3px;box-shadow:0 0 0 7px rgba(79,195,161,.14)}
   .t-nome{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;display:flex;justify-content:space-between;gap:6px;opacity:.9}
-  .t-occ{color:var(--amber)}
-  .tavolo.pieno .t-occ{color:#FFD9A6}
+  .t-occ{color:var(--t-occ)}
+  .tavolo.pieno .t-occ{color:var(--t-occ-pieno)}
+  .t-fis{font-weight:500;opacity:.6;font-size:9px;margin-left:4px}
+  .tavolo.unito .body{box-shadow:0 0 0 2px var(--viola)}
+  .tav-card.unito{box-shadow:0 0 0 2px var(--viola)}
+  .tavolata-box{border:1px dashed var(--viola);border-radius:10px;padding:10px 11px;margin:10px 0}
+  .volanti{position:absolute;display:flex;flex-direction:column;gap:4px;top:50%;transform:translateY(-50%)}
+  .volanti.sx{left:-17px} .volanti.dx{right:-17px}
+  .tavolo.v .volanti{flex-direction:row;top:auto;left:50%;right:auto;transform:translateX(-50%)}
+  .tavolo.v .volanti.sx{top:-17px} .tavolo.v .volanti.dx{bottom:-17px}
+  .seat.volante{border-style:dashed;border-color:var(--viola)}
+  .seat.volante.full{background:var(--viola);border-style:solid}
+  .volanti-box{display:flex;align-items:center;gap:10px;border:1px dashed var(--viola);border-radius:10px;padding:9px 11px;margin:10px 0}
+  .volanti-box .hint{flex:1}
+  .volanti-box b{font-family:"IBM Plex Mono",monospace;min-width:22px;text-align:center}
   .t-ospiti{font-size:10px;line-height:1.28}
   .t-osp{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92}
   .t-osp b{font-weight:600}
@@ -346,14 +369,14 @@
   .mappa{position:absolute;top:0;left:0;transform-origin:0 0;background:var(--tela)}
   .mappa-bg{position:absolute;inset:0;background-size:contain;background-position:center;background-repeat:no-repeat}
   .forma{position:absolute;display:flex;align-items:center;justify-content:center;text-align:center;cursor:grab;touch-action:none;user-select:none}
-  .forma.sel{outline:2px solid #fff;outline-offset:3px}
+  .forma.sel{outline:2px solid var(--amber);outline-offset:3px}
   .forma .txt{white-space:pre-line;font-weight:800;letter-spacing:.02em;line-height:1.15;padding:0 8px;word-break:break-word}
   .forma.zona{align-items:flex-start;justify-content:flex-start}
   .forma.zona .txt{font-weight:700;padding:6px 10px}
   .maniglia{position:absolute;right:-9px;bottom:-9px;width:20px;height:20px;border-radius:50%;background:#fff;border:2px solid var(--ink);cursor:nwse-resize;touch-action:none}
   .tavolozza{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px}
   .pastiglia{width:30px;height:30px;border-radius:8px;border:2px solid transparent}
-  .pastiglia.on{border-color:#fff}
+  .pastiglia.on{border-color:var(--text)}
   .prop{display:flex;align-items:center;gap:10px;margin-bottom:8px}
   .prop label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);min-width:64px}
   .prop input[type=range]{flex:1;padding:0}
@@ -814,6 +837,11 @@ function occupazione(tavoli, prenotazioni) {
    Vincoli: "vicino a" fra prenotazioni, capienza dei tavoli,
    prenotazioni tenute intere quando possibile.
    ========================================================= */
+/* posti volanti: sedie aggiunte a capotavola, oltre ai posti normali */
+/* numero mostrato: i tavoli uniti in una tavolata condividono lo stesso numero, ma restano tavoli distinti nella conta */
+const etichetta = (t) => (t && (t.gruppo || t.nome)) || "";
+const capienza = (t) => (t.posti || 0) + (t.volanti || 0);
+const capTxt = (t) => (t.posti || 0) + (t.volanti ? "+" + t.volanti : "");
 const dimTavolo = (t) => {
   const perLato = Math.ceil((t.posti || 0) / 2);
   const lung = 30 + perLato * 30;
@@ -896,7 +924,7 @@ function coppieVicinanza(lista) {
 /* una singola proposta di disposizione */
 function disponiVariante(tavoli, gruppi, strategia, occupati, ancore, rnd) {
   const liberi = {};
-  tavoli.forEach(t => { liberi[t.id] = Math.max(0, (t.posti || 0) - (occupati[t.id] || 0)); });
+  tavoli.forEach(t => { liberi[t.id] = Math.max(0, capienza(t) - (occupati[t.id] || 0)); });
   const ass = {};
   const metti = (pid, tid, n) => {
     if (n <= 0) return;
@@ -984,7 +1012,7 @@ function valutaDisposizione(ass, tavoli, lista, coppie, soglia) {
       }
     }
     if (stato === "insieme") insieme++; else if (stato === "accanto") accanto++; else lontano++;
-    const tv = (l) => l.map(x => (mappa[x] ? mappa[x].nome : "?")).join("+");
+    const tv = (l) => l.map(x => (mappa[x] ? etichetta(mappa[x]) : "?")).filter((v, i, a) => a.indexOf(v) === i).join("+");
     dettaglio.push({ a: c[0], b: c[1], stato: stato, tavA: tv(ta), tavB: tv(tb) });
   });
   const tavoliUsati = Object.keys(perTav).length;
@@ -1063,8 +1091,13 @@ function Tavolo({ t, occ, selezionato, target, trovato, spento, modifica, onClic
   const orizz = t.orient !== "v";
   const lung = 30 + perLato * 30;
   const W = orizz ? lung : 96, H = orizz ? 96 : lung;
-  const pieno = occ.posti >= t.posti, parziale = occ.posti > 0 && !pieno;
+  const cap = capienza(t), vol = t.volanti || 0;
+  const pieno = occ.posti >= cap, parziale = occ.posti > 0 && !pieno;
   const quanti = occ.ospiti.length;
+  const volSx = Math.ceil(vol / 2), volDx = vol - volSx;
+  const volDots = (n, off) => Array.from({ length: n }, (_, i) => (
+    <span key={i} className={"seat volante" + (t.posti + off + i < occ.posti ? " full" : "")} />
+  ));
   /* con tanti nomi il testo si stringe e il tavolo cresce in altezza: nessun nome nascosto */
   const fsOsp = quanti <= 3 ? 10 : (quanti <= 5 ? 9 : 8);
   const dots = (n, off) => Array.from({ length: n }, (_, i) => (
@@ -1072,16 +1105,18 @@ function Tavolo({ t, occ, selezionato, target, trovato, spento, modifica, onClic
   ));
   return (
     <div
-      className={"tavolo" + (orizz ? "" : " v") + (modifica ? " editabile" : "") + (pieno ? " pieno" : parziale ? " parz" : "") +
+      className={"tavolo" + (orizz ? "" : " v") + (t.gruppo ? " unito" : "") + (modifica ? " editabile" : "") + (pieno ? " pieno" : parziale ? " parz" : "") +
         (selezionato ? " sel" : "") + (target ? " target" : "") + (trovato ? " trovato" : "") + (spento ? " spenta" : "")}
       style={{ left: t.x, top: t.y, width: W, minHeight: H }}
       onPointerDown={modifica ? (e) => onDragStart(e, t) : undefined}
       onClick={() => onClick(t)}
-      title={t.nome + (quanti ? " — " + occ.ospiti.map(o => o.nome + " (" + o.posti + ")").join(", ") : " — libero")}
+      title={etichetta(t) + (t.gruppo ? " (tavolo " + t.nome + ")" : "") + (quanti ? " — " + occ.ospiti.map(o => o.nome + " (" + o.posti + ")").join(", ") : " — libero")}
     >
+      {volSx > 0 && <div className="volanti sx" title="Posto volante (capotavola)">{volDots(volSx, 0)}</div>}
+      {volDx > 0 && <div className="volanti dx" title="Posto volante (capotavola)">{volDots(volDx, volSx)}</div>}
       <div className="seats">{dots(sopra, 0)}</div>
       <div className="body">
-        <div className="t-nome"><span>{t.nome}</span><span className="t-occ">{occ.posti}/{t.posti}</span></div>
+        <div className="t-nome"><span>{etichetta(t)}{t.gruppo && t.gruppo !== t.nome && <span className="t-fis">{t.nome}</span>}</span><span className="t-occ">{occ.posti}/{capTxt(t)}</span></div>
         <div className="t-ospiti" style={{ fontSize: fsOsp }}>
           {occ.ospiti.map((o, i) => (
             <div key={o.id + "-" + i} className="t-osp">{o.arrivata ? "● " : "○ "}<b>{o.nome}</b> {o.posti}</div>
@@ -1163,7 +1198,7 @@ function App() {
   }, [mobile, pannello, salaMob]);
 
   const totali = useMemo(() => {
-    const posti = D.tavoli.reduce((s, t) => s + t.posti, 0);
+    const posti = D.tavoli.reduce((s, t) => s + capienza(t), 0);
     const prenotati = attiveList.reduce((s, p) => s + (p.pax || 0), 0);
     const seduti = attiveList.reduce((s, p) => s + postiAssegnati(p), 0);
     const arrivati = attiveList.filter(p => p.stato === "arrivata").reduce((s, p) => s + (p.pax || 0), 0);
@@ -1174,11 +1209,54 @@ function App() {
      I tavoli creati a mano hanno un codice casuale diverso dal nome: va sempre mostrato il nome. */
   const nomiTavolo = useMemo(() => {
     const m = {};
-    D.tavoli.forEach(t => { m[t.id] = t.nome || t.id; });
+    D.tavoli.forEach(t => { m[t.id] = etichetta(t) || t.id; });
     return m;
   }, [D.tavoli]);
   const nomeTav = (id) => nomiTavolo[id] || "tavolo rimosso";
-  const tavoliDiPren = (p) => (p.assegnazioni || []).map(a => nomeTav(a.tavolo) + "(" + a.posti + ")").join(" ") || "—";
+  const tavoliDiPren = (p) => {
+    const m = [];
+    (p.assegnazioni || []).forEach(a => {
+      const n = nomeTav(a.tavolo), x = m.find(y => y.n === n);
+      if (x) x.p += a.posti; else m.push({ n, p: a.posti });
+    });
+    return m.map(x => x.n + "(" + x.p + ")").join(" ") || "—";
+  };
+
+  /* conta tavoli: fisici (quelli veri) e tavolate (numeri diversi in uso) */
+  const contaTavoli = useMemo(() => {
+    const usati = D.tavoli.filter(t => (occ[t.id] || {}).posti > 0);
+    const et = {}; usati.forEach(t => { et[etichetta(t)] = true; });
+    return { totali: D.tavoli.length, usati: usati.length, tavolate: Object.keys(et).length, uniti: D.tavoli.filter(t => t.gruppo).length };
+  }, [D.tavoli, occ]);
+
+  /* dà lo stesso numero ai tavoli di una compagnia (o toglie il numero comune) */
+  const unisciTavoliPren = (p) => {
+    const ids = [];
+    (p.assegnazioni || []).forEach(a => { if (nomiTavolo[a.tavolo] && ids.indexOf(a.tavolo) < 0) ids.push(a.tavolo); });
+    if (ids.length < 2) return mostra("Serve una compagnia seduta su almeno 2 tavoli");
+    const tav = D.tavoli.filter(t => ids.indexOf(t.id) >= 0).sort(ordineTavoli);
+    const proposta = etichetta(tav[0]);
+    const n = prompt("Numero da dare ai tavoli di " + p.nome + " (" + tav.map(t => t.nome).join(", ") + "):", proposta);
+    if (n === null) return;
+    const num = n.trim();
+    if (!num) return;
+    D.salvaPiantina(D.tavoli.map(t => (ids.indexOf(t.id) >= 0 ? { ...t, gruppo: num } : t)));
+    D.log("ha dato il numero " + num + " ai tavoli " + tav.map(t => t.nome).join(", ") + " (" + p.nome + ")");
+    mostra(tav.length + " tavoli ora si chiamano " + num);
+  };
+  const separaTavoliPren = (p) => {
+    const ids = (p.assegnazioni || []).map(a => a.tavolo);
+    D.salvaPiantina(D.tavoli.map(t => (ids.indexOf(t.id) >= 0 ? { ...t, gruppo: "" } : t)));
+    D.log("ha ridato i numeri originali ai tavoli di " + p.nome);
+    mostra("Numeri originali ripristinati");
+  };
+  const ripristinaNumeri = () => {
+    if (!contaTavoli.uniti) return mostra("Nessun tavolo ha un numero comune");
+    if (!confirm("Ridare il numero originale a tutti i " + contaTavoli.uniti + " tavoli uniti?")) return;
+    D.salvaPiantina(D.tavoli.map(t => ({ ...t, gruppo: "" })));
+    D.log("ha ripristinato i numeri originali di tutti i tavoli");
+    mostra("Numeri originali ripristinati");
+  };
 
   /* --- Ricerca sulla piantina: isola i tavoli che corrispondono --- */
   const trovati = useMemo(() => {
@@ -1188,7 +1266,7 @@ function App() {
     let n = 0;
     D.tavoli.forEach(t => {
       const o = occ[t.id] || { ospiti: [] };
-      const dentro = String(t.nome || "").toLowerCase().includes(q) ||
+      const dentro = String(t.nome || "").toLowerCase().includes(q) || String(t.gruppo || "").toLowerCase() === q ||
         o.ospiti.some(x => String(x.nome || "").toLowerCase().includes(q));
       if (dentro) { s[t.id] = true; n++; }
     });
@@ -1297,10 +1375,16 @@ function App() {
     if (!sel) { setModale({ tipo: "tavolo", t }); return; }
     const p = D.prenotazioni.find(x => x.id === sel);
     if (!p) return setSel(null);
-    const liberi = t.posti - (occ[t.id] ? occ[t.id].posti : 0);
-    if (liberi <= 0) return mostra(t.nome + " è pieno");
     const resta = daSedere(p);
     if (resta <= 0) { setSel(null); return mostra(p.nome + " è già a posto"); }
+    let liberi = capienza(t) - (occ[t.id] ? occ[t.id].posti : 0);
+    if (liberi <= 0) {
+      if ((t.volanti || 0) >= 4) return mostra(t.nome + " è pieno (già 4 posti volanti)");
+      if (!confirm(t.nome + " è pieno.\n\nAggiungo un posto volante (sedia a capotavola) per sistemare 1 persona di " + p.nome + "?")) return;
+      D.salvaPiantina(D.tavoli.map(x => (x.id === t.id ? { ...x, volanti: (x.volanti || 0) + 1 } : x)));
+      D.log("ha aggiunto un posto volante al tavolo " + t.nome + " per " + p.nome);
+      liberi = 1;
+    }
     const n = Math.min(resta, liberi);
     const ass = [...(p.assegnazioni || [])];
     const i = ass.findIndex(a => a.tavolo === t.id);
@@ -1309,6 +1393,19 @@ function App() {
     D.log("ha seduto " + p.nome + " (" + n + ") al tavolo " + t.nome);
     mostra(p.nome + " → " + t.nome + " (" + n + " posti)");
     if (resta - n <= 0) setSel(null);
+  };
+
+  const cambiaVolanti = (tid, delta) => {
+    const t = D.tavoli.find(x => x.id === tid);
+    if (!t) return;
+    const nuovo = Math.min(4, Math.max(0, (t.volanti || 0) + delta));
+    if (nuovo === (t.volanti || 0)) return;
+    const occupati = occ[tid] ? occ[tid].posti : 0;
+    if ((t.posti || 0) + nuovo < occupati &&
+      !confirm("Al tavolo ci sono " + occupati + " persone: togliendo il posto volante risulterà sovraffollato. Procedo?")) return;
+    D.salvaPiantina(D.tavoli.map(x => (x.id === tid ? { ...x, volanti: nuovo } : x)));
+    D.log((delta > 0 ? "ha aggiunto" : "ha tolto") + " un posto volante al tavolo " + t.nome);
+    mostra(t.nome + ": " + (nuovo ? nuovo + (nuovo === 1 ? " posto volante" : " posti volanti") : "nessun posto volante"));
   };
 
   const liberaTavolo = (tid, pid) => {
@@ -1377,7 +1474,7 @@ function App() {
       pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(150);
       pdf.text("FESTIVAL DI FABBRICO", ox + CW / 2, oy + M + 4, { align: "center" });
       pdf.setFont("helvetica", "bold"); pdf.setFontSize(34); pdf.setTextColor(25);
-      pdf.text(String(t.nome), ox + CW / 2, oy + M + 22, { align: "center" });
+      pdf.text(String(etichetta(t)), ox + CW / 2, oy + M + 22, { align: "center" });
       pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(130);
       pdf.text(o.posti + (o.posti === 1 ? " coperto" : " coperti") + (b.parti > 1 ? "  ·  foglio " + b.parte + " di " + b.parti : ""),
         ox + CW / 2, oy + M + 29, { align: "center" });
@@ -1569,7 +1666,7 @@ function App() {
     pdf.setFont("helvetica", "bold"); pdf.setFontSize(15); pdf.setTextColor(20);
     pdf.text("Piantina tavoli", LM, LM + 4);
     pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(115);
-    pdf.text(totali.posti + " posti totali · " + totali.seduti + " occupati · " + totali.liberi + " liberi · aggiornata al " + oggi,
+    pdf.text(contaTavoli.totali + " tavoli (" + contaTavoli.usati + " usati) · " + totali.posti + " posti totali · " + totali.seduti + " occupati · " + totali.liberi + " liberi · aggiornata al " + oggi,
       LM, LM + 9);
 
     const geo = (t) => {
@@ -1599,7 +1696,7 @@ function App() {
       tav.forEach(t => {
         const g = geo(t);
         const o = occ[t.id] || { posti: 0, ospiti: [] };
-        const pieno = o.posti >= t.posti, parziale = o.posti > 0 && !pieno;
+        const pieno = o.posti >= capienza(t), parziale = o.posti > 0 && !pieno;
         const X = px(t.x), Y = py(t.y), W = g.w * s, H = g.h * s;
         if (pieno) { pdf.setFillColor(243, 214, 160); pdf.setDrawColor(190, 140, 50); }
         else if (parziale) { pdf.setFillColor(249, 238, 216); pdf.setDrawColor(205, 175, 120); }
@@ -1608,8 +1705,8 @@ function App() {
         pdf.roundedRect(X, Y, W, H, 1.2, 1.2, "FD");
 
         pdf.setFont("helvetica", "bold"); pdf.setFontSize(7.5); pdf.setTextColor(35);
-        pdf.text(String(t.nome), X + 1.6, Y + 4.4);
-        pdf.text(o.posti + "/" + t.posti, X + W - 1.6, Y + 4.4, { align: "right" });
+        pdf.text(String(etichetta(t)) + (t.gruppo && t.gruppo !== t.nome ? " (" + t.nome + ")" : ""), X + 1.6, Y + 4.4);
+        pdf.text(o.posti + "/" + capTxt(t), X + W - 1.6, Y + 4.4, { align: "right" });
 
         /* i nomi si rimpiccioliscono finché ci stanno tutti nel riquadro */
         if (o.ospiti.length) {
@@ -1699,6 +1796,7 @@ function App() {
             <div className={"stat " + (totali.daSedere > 0 ? "warn" : "")}><b className="num">{totali.daSedere}</b><i>da sedere</i></div>
             <div className={"stat " + (totali.liberi < 0 ? "bad" : "")}><b className="num">{totali.liberi}</b><i>posti liberi</i></div>
             <div className="stat"><b className="num">{totali.arrivati}</b><i>arrivati</i></div>
+            <div className="stat" title={contaTavoli.tavolate + " tavolate (numeri diversi in uso)"}><b className="num">{contaTavoli.usati}/{contaTavoli.totali}</b><i>tavoli usati</i></div>
           </div>
         </div>
         <div className="top-row" style={{ marginTop: 8 }}>
@@ -1761,11 +1859,16 @@ function App() {
                     </div>
                     <div className="pren-meta">
                       {p.orario && <span className="tag">ore {p.orario}</span>}
-                      {(p.assegnazioni || []).map(a => (
+                      {(p.assegnazioni || []).reduce((l, a) => {
+                        const n = nomiTavolo[a.tavolo] || ("?" + a.tavolo), x = l.find(y => y.n === n);
+                        if (x) x.posti += a.posti; else l.push({ n, tavolo: a.tavolo, posti: a.posti, quanti: 1 });
+                        if (x) x.quanti++;
+                        return l;
+                      }, []).map(a => (
                         <span key={a.tavolo} className={"tag tvl" + (nomiTavolo[a.tavolo] ? " clic" : " manca")}
                           title={nomiTavolo[a.tavolo] ? "Mostra " + nomiTavolo[a.tavolo] + " sulla piantina" : "Questo tavolo non esiste più"}
                           onClick={e => { if (nomiTavolo[a.tavolo]) { e.stopPropagation(); setCercaTav(nomiTavolo[a.tavolo]); } }}>
-                          {nomiTavolo[a.tavolo] ? nomiTavolo[a.tavolo] : "⚠ tavolo sparito"} · {a.posti}
+                          {nomiTavolo[a.tavolo] ? nomiTavolo[a.tavolo] : "⚠ tavolo sparito"} · {a.posti}{a.quanti > 1 ? " · " + a.quanti + " tav." : ""}
                         </span>
                       ))}
                       {resta > 0 && <span className="tag">{resta} da sedere</span>}
@@ -1784,6 +1887,11 @@ function App() {
                       <div className="pren-actions" onClick={e => e.stopPropagation()}>
                         <button className="btn ghost sm" onClick={() => toggleArrivo(p)}>{p.stato === "arrivata" ? "Non arrivata" : "Segna arrivata"}</button>
                         <button className="btn ghost sm" onClick={() => setModale({ tipo: "pren", dati: p })}>Modifica</button>
+                        {new Set((p.assegnazioni || []).map(a => a.tavolo)).size > 1 && (
+                          (p.assegnazioni || []).every(a => { const t = D.tavoli.find(x => x.id === a.tavolo); return t && t.gruppo; })
+                            ? <button className="btn ghost sm" onClick={() => separaTavoliPren(p)}>Numeri originali</button>
+                            : <button className="btn ghost sm" onClick={() => unisciTavoliPren(p)}>Stesso numero tavolo</button>
+                        )}
                         {postiAssegnati(p) > 0 && <button className="btn ghost sm" onClick={() => { D.salvaPren({ ...p, assegnazioni: [] }); D.log("ha liberato i tavoli di " + p.nome); mostra("Tavoli liberati"); }}>Libera</button>}
                       </div>
                     )}
@@ -1845,12 +1953,12 @@ function App() {
               <div className="tav-grid" style={{ marginBottom: sel ? 80 : 0 }}>
                 {D.tavoli.slice().sort(ordineTavoli).filter(t => !trovati || trovati[t.id]).map(t => {
                   const o = occ[t.id] || { posti: 0, ospiti: [] };
-                  const pieno = o.posti >= t.posti, parz = o.posti > 0 && !pieno;
+                  const pieno = o.posti >= capienza(t), parz = o.posti > 0 && !pieno;
                   return (
-                    <button key={t.id} className={"tav-card" + (pieno ? " pieno" : parz ? " parz" : "") + (sel && !pieno ? " target" : "")}
+                    <button key={t.id} className={"tav-card" + (t.gruppo ? " unito" : "") + (pieno ? " pieno" : parz ? " parz" : "") + (sel && !pieno ? " target" : "")}
                       onClick={() => clickTavolo(t)}>
-                      <div className="tav-card-top"><b>{t.nome}</b><span>{o.posti}/{t.posti}</span></div>
-                      <div className="tav-barra"><i style={{ width: Math.min(100, Math.round(o.posti / (t.posti || 1) * 100)) + "%" }} /></div>
+                      <div className="tav-card-top"><b>{etichetta(t)}{t.gruppo && t.gruppo !== t.nome && <span className="t-fis">{t.nome}</span>}</b><span>{o.posti}/{capTxt(t)}</span></div>
+                      <div className="tav-barra"><i style={{ width: Math.min(100, Math.round(o.posti / (capienza(t) || 1) * 100)) + "%" }} /></div>
                       {o.ospiti.length === 0 && <div className="tav-vuoto">libero</div>}
                       {o.ospiti.map((x, i) => (
                         <div key={x.id + "-" + i} className="tav-osp"><span>{x.arrivata ? "● " : "○ "}{x.nome}</span><i>{x.posti}</i></div>
@@ -1868,7 +1976,7 @@ function App() {
                 {D.sfondo && <div className="plan-bg" style={{ backgroundImage: "url(" + D.sfondo + ")" }} />}
                 {D.tavoli.map(t => (
                   <Tavolo key={t.id} t={t} occ={occ[t.id] || { posti: 0, ospiti: [] }}
-                    selezionato={false} target={!!sel && (occ[t.id] ? occ[t.id].posti : 0) < t.posti}
+                    selezionato={false} target={!!sel && (occ[t.id] ? occ[t.id].posti : 0) < capienza(t)}
                     trovato={!!(trovati && trovati[t.id])} spento={!!(trovati && trovati.__n && !trovati[t.id])}
                     modifica={modifica && isAdmin} onClick={clickTavolo} onDragStart={dragStart} />
                 ))}
@@ -1940,7 +2048,7 @@ function App() {
           <div className="srv-grid">
             {D.tavoli.filter(t => (occ[t.id] || {}).posti > 0).sort(ordineTavoli).map(t => (
               <div key={t.id} className="srv">
-                <h3><span>{t.nome}</span><span className="num">{occ[t.id].posti}/{t.posti}</span></h3>
+                <h3><span>{etichetta(t)}{t.gruppo && t.gruppo !== t.nome ? " (" + t.nome + ")" : ""}</span><span className="num">{occ[t.id].posti}/{capTxt(t)}</span></h3>
                 <ul>
                   {occ[t.id].ospiti.map(o => (
                     <li key={o.id}>{o.nome} — {o.posti}{o.orario ? " · ore " + o.orario : ""} {o.arrivata ? "✓" : ""}
@@ -2011,13 +2119,14 @@ function App() {
               <button className="btn ghost sm" onClick={rinumeraTavoli}>Rinumera in ordine</button>
               <button className="btn ghost sm" style={{ color: "var(--rosso)", borderColor: "rgba(228,91,109,.45)" }}
                 onClick={svuotaTavoli}>Svuota tutti i tavoli</button>
+              {contaTavoli.uniti > 0 && <button className="btn ghost sm" onClick={ripristinaNumeri}>Numeri originali ({contaTavoli.uniti})</button>}
             </div>
           </div>
           <div className="panel">
             <h2>Dati e collegamenti</h2>
             <p className="hint">
               Stato archivio: <b>{D.cloud ? "Firebase attivo" : "locale (nessun Firebase configurato)"}</b>.<br />
-              Tavoli: <b className="num">{D.tavoli.length}</b> · Posti totali: <b className="num">{totali.posti}</b> · Prenotazioni: <b className="num">{D.prenotazioni.length}</b>
+              Tavoli: <b className="num">{D.tavoli.length}</b> (usati <b className="num">{contaTavoli.usati}</b>, in <b className="num">{contaTavoli.tavolate}</b> tavolate) · Posti totali: <b className="num">{totali.posti}</b> · Prenotazioni: <b className="num">{D.prenotazioni.length}</b>
             </p>
             <div className="row" style={{ marginTop: 10 }}>
               <button className="btn ghost sm" onClick={() => esportaPdf("sintetico")}>PDF sintetico</button>
@@ -2099,10 +2208,17 @@ function App() {
           }} />
       )}
       {modale && modale.tipo === "tavolo" && (
-        <ModaleTavolo t={modale.t} occ={occ[modale.t.id] || { posti: 0, ospiti: [] }} isAdmin={isAdmin}
+        <ModaleTavolo t={D.tavoli.find(x => x.id === modale.t.id) || modale.t} occ={occ[modale.t.id] || { posti: 0, ospiti: [] }} isAdmin={isAdmin}
           onChiudi={() => setModale(null)}
+          onVolanti={(d) => cambiaVolanti(modale.t.id, d)}
+          onGruppo={(g) => {
+            const t = D.tavoli.find(x => x.id === modale.t.id); if (!t) return;
+            D.salvaPiantina(D.tavoli.map(x => (x.id === t.id ? { ...x, gruppo: g } : x)));
+            D.log(g ? "ha dato il numero " + g + " al tavolo " + t.nome : "ha ridato il numero originale al tavolo " + t.nome);
+            mostra(g ? t.nome + " ora si chiama " + g : t.nome + " ha di nuovo il suo numero");
+          }}
           onLibera={(pid) => liberaTavolo(modale.t.id, pid)}
-          onSalva={(t) => { D.salvaPiantina(D.tavoli.map(x => (x.id === t.id ? t : x))); D.log("ha modificato il tavolo " + t.nome); setModale(null); }}
+          onSalva={(t) => { D.salvaPiantina(D.tavoli.map(x => (x.id === t.id ? { ...t, volanti: x.volanti || 0, gruppo: x.gruppo || "" } : x))); D.log("ha modificato il tavolo " + t.nome); setModale(null); }}
           onElimina={(id) => { D.salvaPiantina(D.tavoli.filter(x => x.id !== id)); D.log("ha rimosso il tavolo " + modale.t.nome); setModale(null); mostra("Tavolo rimosso"); }} />
       )}
       {modale && modale.tipo === "auto" && (
@@ -3374,7 +3490,7 @@ function ModaleAuto({ tavoli, prenotazioni, onApplica, onChiudi }) {
               <div className="anteprima">
                 {perTavolo.map(x => (
                   <div key={x.t.id} className="ant-tav">
-                    <h4>{x.t.nome}<span className="num">{x.ospiti.reduce((s, o) => s + o.posti, 0)}/{x.t.posti}</span></h4>
+                    <h4>{etichetta(x.t)}<span className="num">{x.ospiti.reduce((s, o) => s + o.posti, 0)}/{capTxt(x.t)}</span></h4>
                     {x.ospiti.map((o, i) => (
                       <div key={o.pid + "-" + i} className="ant-osp">{nomeDi(o.pid)} <i className="num">{o.posti}</i></div>
                     ))}
@@ -3420,13 +3536,29 @@ function ModaleAuto({ tavoli, prenotazioni, onApplica, onChiudi }) {
 
 
 /* ---------- Modale tavolo ---------- */
-function ModaleTavolo({ t, occ, isAdmin, onSalva, onElimina, onLibera, onChiudi }) {
+function ModaleTavolo({ t, occ, isAdmin, onSalva, onElimina, onLibera, onVolanti, onGruppo, onChiudi }) {
   const [f, setF] = useState({ ...t });
+  const [gr, setGr] = useState(t.gruppo || "");
   return (
     <div className="overlay" onClick={onChiudi}>
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <h3>Tavolo {t.nome}</h3>
-        <p className="hint">Occupati {occ.posti} di {t.posti} posti.</p>
+        <h3>Tavolo {etichetta(t)}{t.gruppo && t.gruppo !== t.nome ? " (" + t.nome + ")" : ""}</h3>
+        <p className="hint">Occupati {occ.posti} di {capienza(t)} posti{t.volanti ? " (" + t.posti + " + " + t.volanti + " volanti)" : ""}.</p>
+        <div className="volanti-box">
+          <span className="hint">Posti volanti<br />sedie a capotavola</span>
+          <button className="btn ghost sm" onClick={() => onVolanti(-1)} disabled={!t.volanti}>−</button>
+          <b>{t.volanti || 0}</b>
+          <button className="btn ghost sm" onClick={() => onVolanti(1)} disabled={(t.volanti || 0) >= 4}>+</button>
+        </div>
+        <div className="tavolata-box">
+          <div className="field" style={{ marginBottom: 6 }}><label>Numero mostrato (tavolata)</label>
+            <div className="row">
+              <input value={gr} onChange={e => setGr(e.target.value)} placeholder={t.nome} />
+              <button className="btn ghost sm" style={{ flex: "0 0 auto" }} onClick={() => onGruppo(gr.trim())}>Applica</button>
+            </div></div>
+          <p className="hint">Dai lo stesso numero a più tavoli della stessa compagnia: nella conta restano tavoli separati.
+            {t.gruppo ? " " : ""}{t.gruppo && <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { setGr(""); onGruppo(""); }}>Torna a {t.nome}</button>}</p>
+        </div>
         {occ.ospiti.length > 0 && (
           <div style={{ margin: "10px 0" }}>
             {occ.ospiti.map(o => (
