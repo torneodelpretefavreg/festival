@@ -423,6 +423,38 @@
     .tab-cards td:first-child::before{content:none}
   }
 
+  /* ---------- Telefono: sala ---------- */
+  .split>*{min-width:0}
+  .tav-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .tav-card{text-align:left;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:10px;padding:10px 11px;display:flex;flex-direction:column;gap:6px;min-width:0}
+  .tav-card.parz{border-left-color:var(--amber)}
+  .tav-card.pieno{border-left-color:var(--verde)}
+  .tav-card.target{border-color:var(--verde);border-style:dashed}
+  .tav-card-top{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+  .tav-card-top b{font-family:"Bricolage Grotesque",sans-serif;font-size:17px}
+  .tav-card-top span{font-family:"IBM Plex Mono",monospace;font-size:13px;color:var(--amber)}
+  .tav-barra{height:4px;border-radius:99px;background:var(--line);overflow:hidden}
+  .tav-barra i{display:block;height:100%;background:var(--amber)}
+  .tav-card.pieno .tav-barra i{background:var(--verde)}
+  .tav-osp{font-size:12px;line-height:1.35;display:flex;justify-content:space-between;gap:6px}
+  .tav-osp span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tav-osp i{font-style:normal;font-family:"IBM Plex Mono",monospace;color:var(--muted)}
+  .tav-vuoto{font-size:12px;color:var(--muted)}
+  .sala-mob{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .sala-mob .plan-cerca{flex:1;width:auto;min-width:0}
+  @media(max-width:760px){
+    html,body{overflow-x:hidden}
+    .split{grid-template-columns:minmax(0,1fr)}
+    .cloud{font-size:0}
+    .utente-chip{padding:3px 4px 3px 10px}
+    .plan-bar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+    .plan-bar::-webkit-scrollbar{display:none}
+    .plan-bar>*{flex:0 0 auto}
+    .plan-bar .spacer,.plan-istr{display:none}
+    .bottom-nav{gap:2px;padding-left:4px;padding-right:4px}
+    .bottom-nav button{min-width:0;padding:10px 2px;font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  }
+
   @media print{
     body{background:#fff;color:#000}
     .no-print{display:none!important}
@@ -483,7 +515,7 @@ const SEZIONI = [
   { k: "manodopera", l: "Manodopera", nav: "Staff" },
   { k: "mappa", l: "Area", nav: "Area" },
   { k: "finanze", l: "Costi & Ricavi", nav: "Costi" },
-  { k: "impostazioni", l: "Impostazioni", nav: "Impostazioni", soloAdmin: true }
+  { k: "impostazioni", l: "Impostazioni", nav: "Admin", soloAdmin: true }
 ];
 const PERMESSI_DEFAULT = { finanze: { riservata: true, utenti: [] } };
 
@@ -1104,12 +1136,31 @@ function App() {
   const planRef = useRef(null);
   const wrapRef = useRef(null);
   const drag = useRef(null);
-  const adatta = () => { if (wrapRef.current) setZoom(+((wrapRef.current.clientWidth - 20) / 1500).toFixed(2)); };
+  const adatta = () => { if (wrapRef.current) setZoom(+Math.max(0.2, (wrapRef.current.clientWidth - 20) / dimPiantina.w).toFixed(2)); };
+  const [salaMob, setSalaMob] = useState(() => localStorage.getItem("festivalfabbrico_salamob") || "elenco");
+  useEffect(() => { try { localStorage.setItem("festivalfabbrico_salamob", salaMob); } catch (e) { } }, [salaMob]);
 
   const mostra = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
 
   const occ = useMemo(() => occupazione(D.tavoli, D.prenotazioni), [D.tavoli, D.prenotazioni]);
   const attiveList = useMemo(() => attive(D.prenotazioni), [D.prenotazioni]);
+
+  /* dimensioni reali della piantina: quanto occupano i tavoli (più spazio quando li sposti) */
+  const dimPiantina = useMemo(() => {
+    let w = 600, h = 400;
+    D.tavoli.forEach(t => {
+      const d = dimTavolo(t);
+      const extra = Math.max(0, ((occ[t.id] || { ospiti: [] }).ospiti.length - 3) * 13);
+      w = Math.max(w, (t.x || 0) + d.w + 40);
+      h = Math.max(h, (t.y || 0) + d.h + extra + 40);
+    });
+    return modifica ? { w: Math.max(w, 1500), h: Math.max(h, 1000) } : { w, h };
+  }, [D.tavoli, occ, modifica]);
+
+  /* su telefono la mappa si adatta da sola alla larghezza quando la apri */
+  useEffect(() => {
+    if (mobile && pannello === "mappa" && salaMob === "mappa") { const t = setTimeout(adatta, 60); return () => clearTimeout(t); }
+  }, [mobile, pannello, salaMob]);
 
   const totali = useMemo(() => {
     const posti = D.tavoli.reduce((s, t) => s + t.posti, 0);
@@ -1745,45 +1796,74 @@ function App() {
 
           {(!mobile || pannello === "mappa") && (
           <div>
+            {mobile && (
+              <div className="sala-mob no-print">
+                <div className="segment" style={{ margin: 0, flex: "0 0 auto" }}>
+                  <button className={salaMob === "elenco" ? "on" : ""} onClick={() => setSalaMob("elenco")}>Elenco</button>
+                  <button className={salaMob === "mappa" ? "on" : ""} onClick={() => setSalaMob("mappa")}>Mappa</button>
+                </div>
+                <input className="plan-cerca" value={cercaTav} onChange={e => setCercaTav(e.target.value)} placeholder="Cerca tavolo o nome…" />
+                {cercaTav.trim() !== "" && <button className="btn ghost sm" onClick={() => setCercaTav("")}>×</button>}
+              </div>
+            )}
             <div className="plan-bar no-print">
-              {isAdmin && (
-                <button className={"btn sm " + (modifica ? "" : "ghost")} onClick={() => setModifica(!modifica)}>
-                  {modifica ? "Fine spostamento" : "Sposta tavoli"}
-                </button>
+              {(!mobile || salaMob === "mappa") && (
+                <React.Fragment>
+                  {isAdmin && <button className={"btn sm " + (modifica ? "" : "ghost")} onClick={() => setModifica(!modifica)}>{modifica ? "Fine spostamento" : "Sposta tavoli"}</button>}
+                  <button className="btn ghost sm" onClick={() => setZoom(z => Math.max(0.2, +(z - 0.1).toFixed(2)))}>−</button>
+                  <span className="num" style={{ minWidth: 42, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
+                  <button className="btn ghost sm" onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))}>+</button>
+                  <button className="btn ghost sm" onClick={adatta}>Adatta</button>
+                  {isAdmin && modifica && <button className="btn ghost sm" onClick={riordinaGriglia}>Rimetti in griglia</button>}
+                  {isAdmin && modifica && <button className="btn ghost sm" onClick={rinumeraTavoli}>Rinumera in ordine</button>}
+                </React.Fragment>
               )}
-              <button className="btn ghost sm" onClick={() => setZoom(z => Math.max(0.3, +(z - 0.1).toFixed(2)))}>−</button>
-              <span className="num" style={{ minWidth: 42, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
-              <button className="btn ghost sm" onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))}>+</button>
-              <button className="btn ghost sm" onClick={adatta}>Adatta</button>
-              {isAdmin && modifica && <button className="btn ghost sm" onClick={riordinaGriglia}>Rimetti in griglia</button>}
-              {isAdmin && modifica && <button className="btn ghost sm" onClick={rinumeraTavoli}>Rinumera in ordine</button>}
               {isAdmin && <button className="btn sm" onClick={() => setModale({ tipo: "auto" })}>Disponi in automatico</button>}
               <button className="btn ghost sm" onClick={esportaTarghette}>Targhette tavoli</button>
-              <input className="plan-cerca" value={cercaTav} onChange={e => setCercaTav(e.target.value)}
-                placeholder="Cerca tavolo o nome…" />
-              {cercaTav.trim() !== "" && <span className="hint">{(trovati && trovati.__n) || 0} trovati</span>}
-              {cercaTav.trim() !== "" && <button className="btn ghost sm" onClick={() => setCercaTav("")}>×</button>}
+              {!mobile && <input className="plan-cerca" value={cercaTav} onChange={e => setCercaTav(e.target.value)} placeholder="Cerca tavolo o nome…" />}
+              {!mobile && cercaTav.trim() !== "" && <span className="hint">{(trovati && trovati.__n) || 0} trovati</span>}
+              {!mobile && cercaTav.trim() !== "" && <button className="btn ghost sm" onClick={() => setCercaTav("")}>×</button>}
               <div className="spacer" />
               {sovrapposti.length > 0 && (
                 <span className="plan-avviso" title={sovrapposti.map(t => t.nome).join(", ")}>
-                  ⚠ {sovrapposti.length} tavoli sono nascosti sotto ad altri
+                  ⚠ {sovrapposti.length} tavoli nascosti sotto ad altri
                   <button className="btn ghost sm" style={{ color: "var(--rosso)", borderColor: "rgba(228,91,109,.45)" }}
                     onClick={separaTavoli}>Separa</button>
                 </span>
               )}
               {fantasmi.length > 0 && (
                 <span className="plan-avviso" title={fantasmi.map(p => p.nome).join(", ")}>
-                  ⚠ {fantasmi.length} {fantasmi.length === 1 ? "prenotazione è" : "prenotazioni sono"} su tavoli che non esistono più
+                  ⚠ {fantasmi.length} {fantasmi.length === 1 ? "prenotazione" : "prenotazioni"} su tavoli spariti
                   <button className="btn ghost sm" style={{ color: "var(--rosso)", borderColor: "rgba(228,91,109,.45)" }}
                     onClick={sistemaFantasmi}>Sistema</button>
                 </span>
               )}
-              <span className="hint">{sel ? "Tocca un tavolo per sedere la prenotazione selezionata" : "Tocca un tavolo per vederne il dettaglio"}</span>
+              <span className="hint plan-istr">{sel ? "Tocca un tavolo per sedere la prenotazione selezionata" : "Tocca un tavolo per vederne il dettaglio"}</span>
             </div>
 
+            {mobile && salaMob === "elenco" ? (
+              <div className="tav-grid" style={{ marginBottom: sel ? 80 : 0 }}>
+                {D.tavoli.slice().sort(ordineTavoli).filter(t => !trovati || trovati[t.id]).map(t => {
+                  const o = occ[t.id] || { posti: 0, ospiti: [] };
+                  const pieno = o.posti >= t.posti, parz = o.posti > 0 && !pieno;
+                  return (
+                    <button key={t.id} className={"tav-card" + (pieno ? " pieno" : parz ? " parz" : "") + (sel && !pieno ? " target" : "")}
+                      onClick={() => clickTavolo(t)}>
+                      <div className="tav-card-top"><b>{t.nome}</b><span>{o.posti}/{t.posti}</span></div>
+                      <div className="tav-barra"><i style={{ width: Math.min(100, Math.round(o.posti / (t.posti || 1) * 100)) + "%" }} /></div>
+                      {o.ospiti.length === 0 && <div className="tav-vuoto">libero</div>}
+                      {o.ospiti.map((x, i) => (
+                        <div key={x.id + "-" + i} className="tav-osp"><span>{x.arrivata ? "● " : "○ "}{x.nome}</span><i>{x.posti}</i></div>
+                      ))}
+                    </button>
+                  );
+                })}
+                {trovati && trovati.__n === 0 && <p className="hint">Nessun tavolo trovato.</p>}
+              </div>
+            ) : (
             <div className="plan-wrap" ref={wrapRef}>
-              <div className="scaler" style={{ width: Math.round(1500 * zoom), height: Math.round(1000 * zoom) }}>
-              <div className="plan" ref={planRef} style={{ transform: "scale(" + zoom + ")" }}
+              <div className="scaler" style={{ width: Math.round(dimPiantina.w * zoom), height: Math.round(dimPiantina.h * zoom) }}>
+              <div className="plan" ref={planRef} style={{ width: dimPiantina.w, height: dimPiantina.h, transform: "scale(" + zoom + ")" }}
                 onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd}>
                 {D.sfondo && <div className="plan-bg" style={{ backgroundImage: "url(" + D.sfondo + ")" }} />}
                 {D.tavoli.map(t => (
@@ -1795,6 +1875,7 @@ function App() {
               </div>
               </div>
             </div>
+            )}
 
             {sel && (
               <div className="banner no-print">
