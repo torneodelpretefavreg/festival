@@ -494,6 +494,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -589,9 +590,72 @@ const fasciaTxt = (p) => (p.dalle || p.alle) ? ((p.dalle || "\u2026") + "\u2013"
 const TIPI_SOGGETTO = [
   { id: "persona", label: "Persona" },
   { id: "fornitore", label: "Fornitore" },
+  { id: "attivita", label: "Attività commerciale" },
   { id: "ente", label: "Ente / Associazione" },
   { id: "altro", label: "Altro" }
 ];
+
+/* Le associazioni che organizzano: ogni costo e ogni incasso è intestato a una di loro,
+   poi il risultato comune si divide secondo le quote. */
+const ENTI_DEFAULT = [
+  { id: "futsal", nome: "Futsal Fabbrico", quota: 33.34 },
+  { id: "proloco", nome: "Pro Loco", quota: 33.33 },
+  { id: "calcio", nome: "Calcio", quota: 33.33 }
+];
+
+/* importo di riferimento: il consuntivo se c'è, altrimenti il preventivo */
+const importoVoce = (v) => {
+  const c = v.consuntivo;
+  return (c === null || c === undefined || c === "") ? (Number(v.preventivo) || 0) : (Number(c) || 0);
+};
+/* quota dell'incasso che resta alle associazioni (il resto va girato alla controparte) */
+const quotaAssoc = (v) => {
+  if (v.tipo !== "ricavo") return 100;
+  const q = (v.quotaAssoc === null || v.quotaAssoc === undefined || v.quotaAssoc === "") ? 100 : Number(v.quotaAssoc);
+  return isNaN(q) ? 100 : Math.min(100, Math.max(0, q));
+};
+
+function calcolaRipartizione(voci, enti) {
+  const perEnte = {};
+  enti.forEach(e => { perEnte[e.id] = { ente: e, incassi: 0, daGirare: 0, costi: 0, propri: 0, disponibile: 0, spettante: 0, conguaglio: 0 }; });
+  const perCp = {};
+  let ricaviLordi = 0, ricaviNetti = 0, girate = 0, costi = 0, propri = 0, senzaEnte = 0, daConsuntivare = 0;
+
+  voci.forEach(v => {
+    const imp = importoVoce(v), q = quotaAssoc(v);
+    const ripartita = v.ripartita !== false;
+    const e = perEnte[v.ente];
+    if (!v.ente || !e) senzaEnte++;
+    if (v.consuntivo === null || v.consuntivo === undefined) daConsuntivare++;
+    const cp = v.soggetto || "";
+    if (!perCp[cp]) perCp[cp] = { id: cp, incassato: 0, daGirare: 0, costi: 0 };
+    if (v.tipo === "ricavo") {
+      const netto = imp * q / 100, gira = imp - netto;
+      perCp[cp].incassato += imp; perCp[cp].daGirare += gira;
+      if (e) { e.incassi += imp; e.daGirare += gira; if (!ripartita) e.propri += netto; }
+      if (ripartita) { ricaviLordi += imp; ricaviNetti += netto; girate += gira; } else propri += netto;
+    } else {
+      perCp[cp].costi += imp;
+      if (e) { e.costi += imp; if (!ripartita) e.propri -= imp; }
+      if (ripartita) costi += imp; else propri -= imp;
+    }
+  });
+
+  const risultato = ricaviNetti - costi;
+  const quotaTot = +enti.reduce((t, e) => t + (Number(e.quota) || 0), 0).toFixed(2);
+  const lista = enti.map(e => {
+    const x = perEnte[e.id];
+    /* disponibile: solo quello che riguarda la cassa comune (tolte le voci proprie) */
+    x.disponibile = x.incassi - x.daGirare - x.costi - x.propri;
+    x.spettante = risultato * (Number(e.quota) || 0) / 100;
+    x.conguaglio = x.spettante - x.disponibile;
+    return x;
+  });
+  const controparti = Object.keys(perCp).map(k => perCp[k])
+    .sort((a, b) => (b.incassato + b.costi) - (a.incassato + a.costi));
+
+  return { enti: lista, controparti, ricaviLordi, ricaviNetti, girate, costi, risultato, propri, senzaEnte, daConsuntivare, quotaTot };
+}
 const tipoSoggettoLabel = (id) => (TIPI_SOGGETTO.find(t => t.id === id) || TIPI_SOGGETTO[3]).label;
 const euro = (n) => (Number(n) || 0).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 
@@ -652,7 +716,7 @@ function useDati() {
   const [mappa, setMappa] = useState({ forme: [], ratio: MAPPA_RATIO_DEF });
   const [sfondoMappa, setSfondoMappa] = useState("");
   const [manodopera, setManodopera] = useState({ aree: [] });
-  const [finanze, setFinanze] = useState({ voci: [], soggetti: [] });
+  const [finanze, setFinanze] = useState({ voci: [], soggetti: [], enti: null });
   const [permessi, setPermessi] = useState(PERMESSI_DEFAULT);
   const [pronto, setPronto] = useState(false);
 
@@ -688,7 +752,7 @@ function useDati() {
       });
       const u8 = db.collection("impostazioni").doc("finanze").onSnapshot(d => {
         const v = d.data();
-        setFinanze({ voci: (v && v.voci) || [], soggetti: (v && v.soggetti) || [] });
+        setFinanze({ voci: (v && v.voci) || [], soggetti: (v && v.soggetti) || [], enti: (v && v.enti) || null });
       });
       const u9 = db.collection("impostazioni").doc("permessi").onSnapshot(d => {
         const v = d.data();
@@ -706,7 +770,7 @@ function useDati() {
     setMappa(l.mappa || { forme: [], ratio: MAPPA_RATIO_DEF });
     setSfondoMappa(l.sfondoMappa || "");
     setManodopera(l.manodopera || { aree: [] });
-    setFinanze(l.finanze || { voci: [], soggetti: [] });
+    setFinanze(l.finanze || { voci: [], soggetti: [], enti: null });
     setPermessi(l.permessi || PERMESSI_DEFAULT);
     setPronto(true);
   }, []);
@@ -3066,39 +3130,37 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
 }
 
 /* =========================================================
-   COSTI & RICAVI (budget e consuntivo) + Anagrafica
+   COSTI & RICAVI (budget, consuntivo, ripartizione) + Anagrafica
    ========================================================= */
 function FinanzeView({ finanze, onSalva, log, mostra }) {
   const voci = finanze.voci || [];
   const soggetti = finanze.soggetti || [];
+  const enti = (finanze.enti && finanze.enti.length) ? finanze.enti : [];
   const [sotto, setSotto] = useState("voci");
   const [filtro, setFiltro] = useState("tutte");
+  const [filtroEnte, setFiltroEnte] = useState("");
   const [modaleVoce, setModaleVoce] = useState(null);
-  const [nuovoSoggetto, setNuovoSoggetto] = useState({ nome: "", tipo: "persona", contatto: "" });
+  const [nuovoSoggetto, setNuovoSoggetto] = useState({ nome: "", tipo: "fornitore", contatto: "", retro: 100 });
+  const [nuovoEnte, setNuovoEnte] = useState("");
+
+  /* al primo ingresso crea le tre associazioni, poi si possono cambiare */
+  useEffect(() => {
+    if (!finanze.enti) onSalva({ ...finanze, enti: ENTI_DEFAULT });
+  }, [finanze.enti]);
 
   const nomeSoggetto = (id) => { const s = soggetti.find(x => x.id === id); return s ? s.nome : "—"; };
+  const nomeEnte = (id) => { const e = enti.find(x => x.id === id); return e ? e.nome : "—"; };
 
-  const tot = useMemo(() => {
-    const acc = { prevCosti: 0, prevRicavi: 0, consCosti: 0, consRicavi: 0, daConsuntivare: 0 };
-    voci.forEach(v => {
-      const p = Number(v.preventivo) || 0;
-      if (v.tipo === "ricavo") acc.prevRicavi += p; else acc.prevCosti += p;
-      if (v.consuntivo === null || v.consuntivo === undefined) acc.daConsuntivare++;
-      else {
-        const c = Number(v.consuntivo) || 0;
-        if (v.tipo === "ricavo") acc.consRicavi += c; else acc.consCosti += c;
-      }
-    });
-    return { ...acc, saldoPrev: acc.prevRicavi - acc.prevCosti, saldoCons: acc.consRicavi - acc.consCosti };
-  }, [voci]);
+  const R = useMemo(() => calcolaRipartizione(voci, enti), [voci, enti]);
 
   const listaVoci = useMemo(() => {
     let l = voci.slice();
     if (filtro === "costo") l = l.filter(v => v.tipo === "costo");
     if (filtro === "ricavo") l = l.filter(v => v.tipo === "ricavo");
     if (filtro === "daconsuntivare") l = l.filter(v => v.consuntivo === null || v.consuntivo === undefined);
+    if (filtroEnte) l = l.filter(v => (v.ente || "") === filtroEnte);
     return l.sort((a, b) => (b.creata || 0) - (a.creata || 0));
-  }, [voci, filtro]);
+  }, [voci, filtro, filtroEnte]);
 
   const salvaVoce = (v) => {
     const dati = { ...v, ...firma() };
@@ -3122,7 +3184,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
   };
   const eliminaSoggetto = (id) => {
     const s = soggetti.find(x => x.id === id);
-    if (voci.some(v => v.soggetto === id) && !confirm("Ci sono voci di costo/ricavo collegate a " + (s ? s.nome : "questo soggetto") + ". Eliminarlo comunque dall'anagrafica?")) return;
+    if (voci.some(v => v.soggetto === id) && !confirm("Ci sono voci collegate a " + (s ? s.nome : "questa controparte") + ". Eliminarla comunque?")) return;
     onSalva({ ...finanze, soggetti: soggetti.filter(x => x.id !== id) });
     log("ha eliminato dall'anagrafica " + (s ? s.nome : id));
     mostra("Eliminato dall'anagrafica");
@@ -3130,28 +3192,184 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
   const aggiungiSoggetto = () => {
     const n = nuovoSoggetto.nome.trim(); if (!n) return;
     if (soggetti.some(s => s.nome.toLowerCase() === n.toLowerCase())) return mostra(n + " è già in anagrafica");
-    const s = { id: uid(), nome: n, tipo: nuovoSoggetto.tipo, contatto: nuovoSoggetto.contatto.trim(), note: "", ...firma() };
+    const s = {
+      id: uid(), nome: n, tipo: nuovoSoggetto.tipo, contatto: nuovoSoggetto.contatto.trim(), note: "",
+      retro: nuovoSoggetto.tipo === "attivita" ? (parseFloat(nuovoSoggetto.retro) || 0) : 100, ...firma()
+    };
     onSalva({ ...finanze, soggetti: [...soggetti, s] });
     log("ha aggiunto in anagrafica " + n);
-    setNuovoSoggetto({ nome: "", tipo: "persona", contatto: "" });
+    setNuovoSoggetto({ nome: "", tipo: "fornitore", contatto: "", retro: 100 });
     mostra("Aggiunto all'anagrafica");
+  };
+
+  const patchEnte = (id, patch, azione) => {
+    onSalva({ ...finanze, enti: enti.map(e => (e.id === id ? { ...e, ...patch } : e)) });
+    if (azione) log(azione);
+  };
+  const aggiungiEnte = () => {
+    const n = nuovoEnte.trim(); if (!n) return;
+    if (enti.some(e => e.nome.toLowerCase() === n.toLowerCase())) return mostra(n + " c'è già");
+    const quota = +(100 / (enti.length + 1)).toFixed(2);
+    const next = enti.map(e => ({ ...e, quota })).concat([{ id: uid(), nome: n, quota }]);
+    onSalva({ ...finanze, enti: next });
+    log("ha aggiunto l'associazione " + n);
+    setNuovoEnte(""); mostra("Associazione aggiunta");
+  };
+  const eliminaEnte = (id) => {
+    const e = enti.find(x => x.id === id);
+    if (voci.some(v => v.ente === id) && !confirm("Ci sono voci intestate a " + (e ? e.nome : "questa associazione") + ". Eliminarla comunque?")) return;
+    onSalva({ ...finanze, enti: enti.filter(x => x.id !== id) });
+    log("ha eliminato l'associazione " + (e ? e.nome : id));
+  };
+  const quoteParitarie = () => {
+    if (!enti.length) return;
+    const q = +(100 / enti.length).toFixed(2);
+    const next = enti.map((e, i) => ({ ...e, quota: i === 0 ? +(100 - q * (enti.length - 1)).toFixed(2) : q }));
+    onSalva({ ...finanze, enti: next });
+    log("ha messo le quote in parti uguali");
+    mostra("Quote in parti uguali");
+  };
+
+  /* ---------- Esportazioni ---------- */
+  const righeDettaglio = () => {
+    const h = ["Tipo", "Voce", "Associazione", "Controparte", "Preventivo", "Consuntivo", "Importo usato",
+      "% alle associazioni", "Netto associazioni", "Da girare", "Ripartita", "Data", "Note"];
+    const r = voci.slice().sort((a, b) => String(a.tipo).localeCompare(String(b.tipo)) || String(a.voce).localeCompare(String(b.voce), "it")).map(v => {
+      const imp = importoVoce(v), q = quotaAssoc(v);
+      const netto = v.tipo === "ricavo" ? imp * q / 100 : imp;
+      return [v.tipo === "ricavo" ? "Ricavo" : "Costo", v.voce, nomeEnte(v.ente), nomeSoggetto(v.soggetto),
+        Number(v.preventivo) || 0, (v.consuntivo === null || v.consuntivo === undefined) ? "" : Number(v.consuntivo) || 0,
+        imp, v.tipo === "ricavo" ? q : 100, +netto.toFixed(2), v.tipo === "ricavo" ? +(imp - netto).toFixed(2) : 0,
+        v.ripartita === false ? "no" : "sì", v.data || "", v.note || ""];
+    });
+    return [h].concat(r);
+  };
+  const righeEnti = () => {
+    const h = ["Associazione", "Incassato lordo", "Da girare alle attività", "Costi pagati", "Disponibile", "Quota %", "Spettante", "Conguaglio", "Voci proprie (non ripartite)"];
+    const r = R.enti.map(e => [e.ente.nome, +e.incassi.toFixed(2), +e.daGirare.toFixed(2), +e.costi.toFixed(2),
+      +e.disponibile.toFixed(2), Number(e.ente.quota) || 0, +e.spettante.toFixed(2), +e.conguaglio.toFixed(2), +e.propri.toFixed(2)]);
+    return [h].concat(r);
+  };
+  const righeControparti = () => {
+    const h = ["Controparte", "Tipo", "Incassato lordo", "% alle associazioni", "Da girare a loro", "Costi verso di loro", "Saldo (a loro favore)"];
+    const r = R.controparti.map(c => {
+      const s = soggetti.find(x => x.id === c.id);
+      return [s ? s.nome : "(senza controparte)", s ? tipoSoggettoLabel(s.tipo) : "—", +c.incassato.toFixed(2),
+        c.incassato ? +(100 - c.daGirare / c.incassato * 100).toFixed(2) : "", +c.daGirare.toFixed(2), +c.costi.toFixed(2),
+        +(c.daGirare + c.costi).toFixed(2)];
+    });
+    return [h].concat(r);
+  };
+  const righeRiepilogo = () => ([
+    ["Riepilogo Festival Fabbrico", ""],
+    ["Aggiornato al", new Date().toLocaleString("it-IT")],
+    ["", ""],
+    ["Ricavi lordi incassati", +R.ricaviLordi.toFixed(2)],
+    ["Di cui da girare alle attività", +R.girate.toFixed(2)],
+    ["Ricavi netti delle associazioni", +R.ricaviNetti.toFixed(2)],
+    ["Costi", +R.costi.toFixed(2)],
+    ["Risultato da ripartire", +R.risultato.toFixed(2)],
+    ["", ""],
+    ["Voci non ripartite (di singole associazioni)", +R.propri.toFixed(2)],
+    ["Voci senza associazione", R.senzaEnte],
+    ["Voci ancora da consuntivare", R.daConsuntivare]
+  ]);
+
+  const esportaExcel = () => {
+    if (!window.XLSX) return mostra("Libreria Excel non disponibile");
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(righeRiepilogo()), "Riepilogo");
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(righeEnti()), "Ripartizione");
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(righeControparti()), "Controparti");
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(righeDettaglio()), "Dettaglio");
+    window.XLSX.writeFile(wb, "costi-ricavi-festival.xlsx");
+    log("ha esportato costi, ricavi e ripartizione in Excel");
+    mostra("Excel esportato");
+  };
+
+  const esportaPdf = () => {
+    if (!window.jspdf || !window.jspdf.jsPDF) return mostra("Libreria PDF non disponibile");
+    const pdf = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const PW = pdf.internal.pageSize.getWidth(), PH = pdf.internal.pageSize.getHeight(), M = 12;
+    let y = M;
+    const nuova = () => { pdf.addPage(); y = M; };
+    const spazio = (h) => { if (y + h > PH - M) nuova(); };
+    const titolo = (t, sub) => {
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(16); pdf.setTextColor(20); pdf.text(t, M, y); y += 6;
+      if (sub) { pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(115); pdf.text(sub, M, y); y += 4; }
+      pdf.setDrawColor(190); pdf.line(M, y, PW - M, y); y += 6;
+    };
+    const sezione = (t) => { spazio(14); pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(25); pdf.text(t, M, y); y += 5.5; };
+    const tabella = (righe, larg, numDa) => {
+      const x0 = M;
+      righe.forEach((r, i) => {
+        spazio(6);
+        if (i === 0) { pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.setTextColor(120); }
+        else { pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(35); }
+        let x = x0;
+        r.forEach((c, j) => {
+          const num = i > 0 && j >= numDa && typeof c === "number";
+          const testo = num ? euro(c) : String(c === null || c === undefined ? "" : c);
+          const w = larg[j];
+          if (num) pdf.text(pdf.splitTextToSize(testo, w)[0] || "", x + w - 2, y, { align: "right" });
+          else pdf.text(pdf.splitTextToSize(testo, w - 2)[0] || "", x, y);
+          x += w;
+        });
+        y += i === 0 ? 4 : 5;
+        if (i === 0) { pdf.setDrawColor(215); pdf.line(M, y - 3, PW - M, y - 3); y += 0.5; }
+      });
+      y += 4;
+    };
+
+    titolo("Festival Fabbrico — Costi, ricavi e ripartizione",
+      "Stampato il " + new Date().toLocaleString("it-IT") + " · importi consuntivi dove presenti, altrimenti preventivi");
+
+    sezione("Riepilogo");
+    tabella(righeRiepilogo().slice(3).filter(r => r[0]), [120, 45], 1);
+
+    sezione("Ripartizione fra le associazioni");
+    tabella(righeEnti(), [46, 30, 32, 26, 28, 18, 28, 28, 30], 1);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(110);
+    spazio(8);
+    pdf.text("Conguaglio positivo = l'associazione deve ricevere; negativo = deve versare.", M, y); y += 7;
+
+    sezione("Controparti");
+    tabella(righeControparti(), [55, 32, 30, 28, 30, 32, 32], 2);
+
+    sezione("Dettaglio voci");
+    tabella(righeDettaglio().map(r => [r[0], r[1], r[2], r[3], r[6], r[8], r[9]]),
+      [20, 62, 40, 46, 28, 30, 28], 4);
+
+    const n = pdf.internal.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+      pdf.setPage(i); pdf.setFont("helvetica", "normal"); pdf.setFontSize(7.5); pdf.setTextColor(150);
+      pdf.text("Festival Fabbrico — costi e ricavi", M, PH - 6);
+      pdf.text("Pagina " + i + " di " + n, PW - M, PH - 6, { align: "right" });
+    }
+    pdf.save("costi-ricavi-festival.pdf");
+    log("ha esportato il PDF di costi, ricavi e ripartizione");
+    mostra("PDF esportato");
   };
 
   return (
     <div style={{ marginTop: 16 }}>
       <div className="stats" style={{ marginBottom: 14 }}>
-        <div className="stat ok"><b className="num">{euro(tot.prevRicavi)}</b><i>ricavi previsti</i></div>
-        <div className="stat bad"><b className="num">{euro(tot.prevCosti)}</b><i>costi previsti</i></div>
-        <div className={"stat " + (tot.saldoPrev >= 0 ? "ok" : "bad")}><b className="num">{euro(tot.saldoPrev)}</b><i>saldo previsto</i></div>
-        <div className="stat ok"><b className="num">{euro(tot.consRicavi)}</b><i>ricavi consuntivi</i></div>
-        <div className="stat bad"><b className="num">{euro(tot.consCosti)}</b><i>costi consuntivi</i></div>
-        <div className={"stat " + (tot.saldoCons >= 0 ? "ok" : "bad")}><b className="num">{euro(tot.saldoCons)}</b><i>saldo consuntivo</i></div>
-        <div className={"stat " + (tot.daConsuntivare > 0 ? "warn" : "")}><b className="num">{tot.daConsuntivare}</b><i>da consuntivare</i></div>
+        <div className="stat ok"><b className="num">{euro(R.ricaviNetti)}</b><i>ricavi netti</i></div>
+        <div className="stat bad"><b className="num">{euro(R.costi)}</b><i>costi</i></div>
+        <div className={"stat " + (R.risultato >= 0 ? "ok" : "bad")}><b className="num">{euro(R.risultato)}</b><i>da ripartire</i></div>
+        <div className="stat warn"><b className="num">{euro(R.girate)}</b><i>da girare</i></div>
+        <div className={"stat " + (R.daConsuntivare > 0 ? "warn" : "")}><b className="num">{R.daConsuntivare}</b><i>da consuntivare</i></div>
+        {R.senzaEnte > 0 && <div className="stat bad"><b className="num">{R.senzaEnte}</b><i>senza associazione</i></div>}
       </div>
 
       <div className="segcaps">
         <button className={sotto === "voci" ? "on" : ""} onClick={() => setSotto("voci")}>Costi & ricavi</button>
-        <button className={sotto === "anagrafica" ? "on" : ""} onClick={() => setSotto("anagrafica")}>Anagrafica</button>
+        <button className={sotto === "ripartizione" ? "on" : ""} onClick={() => setSotto("ripartizione")}>Ripartizione</button>
+        <button className={sotto === "anagrafica" ? "on" : ""} onClick={() => setSotto("anagrafica")}>Controparti</button>
+        <button className={sotto === "enti" ? "on" : ""} onClick={() => setSotto("enti")}>Associazioni</button>
+        <div className="spacer" />
+        <button className="btn sm" onClick={esportaPdf}>PDF</button>
+        <button className="btn ghost sm" onClick={esportaExcel}>Excel</button>
       </div>
 
       {sotto === "voci" && (
@@ -3160,6 +3378,10 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
             {[["tutte", "Tutte"], ["ricavo", "Ricavi"], ["costo", "Costi"], ["daconsuntivare", "Da consuntivare"]].map(([k, l]) => (
               <button key={k} className={"chip" + (filtro === k ? " on" : "")} onClick={() => setFiltro(k)}>{l}</button>
             ))}
+            <select value={filtroEnte} onChange={e => setFiltroEnte(e.target.value)} style={{ width: 190 }}>
+              <option value="">Tutte le associazioni</option>
+              {enti.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+            </select>
           </div>
           <div className="row" style={{ marginBottom: 10 }}>
             <button className="btn sm" onClick={() => setModaleVoce({})}>+ Voce</button>
@@ -3167,34 +3389,104 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
           {listaVoci.length === 0 && <p className="hint">Nessuna voce. Aggiungine una con "+ Voce".</p>}
           {listaVoci.length > 0 && (
             <table className="tab-cards">
-              <thead><tr><th>Voce</th><th>Soggetto</th><th>Preventivo</th><th>Consuntivo</th></tr></thead>
+              <thead><tr><th>Voce</th><th>Associazione</th><th>Controparte</th><th>Preventivo</th><th>Consuntivo</th></tr></thead>
               <tbody>
-                {listaVoci.map(v => (
-                  <tr key={v.id} className="fin-riga" onClick={() => setModaleVoce(v)}>
-                    <td data-label="Voce">
-                      <span className={"tag " + (v.tipo === "ricavo" ? "ricavo" : "costo")}>{v.tipo === "ricavo" ? "ricavo" : "costo"}</span>
-                      <div className="fin-cat">{v.voce}</div>
-                      {v.data && <div className="fin-sub">{v.data}</div>}
-                    </td>
-                    <td data-label="Soggetto">{nomeSoggetto(v.soggetto)}</td>
-                    <td data-label="Preventivo" className="num">{euro(v.preventivo)}</td>
-                    <td data-label="Consuntivo" className="num">
-                      {(v.consuntivo === null || v.consuntivo === undefined) ? <span className="imp muted">—</span> : euro(v.consuntivo)}
-                    </td>
-                  </tr>
-                ))}
+                {listaVoci.map(v => {
+                  const q = quotaAssoc(v);
+                  return (
+                    <tr key={v.id} className="fin-riga" onClick={() => setModaleVoce(v)}>
+                      <td data-label="Voce">
+                        <span className={"tag " + (v.tipo === "ricavo" ? "ricavo" : "costo")}>{v.tipo === "ricavo" ? "ricavo" : "costo"}</span>
+                        <div className="fin-cat">{v.voce}</div>
+                        <div className="fin-sub">
+                          {v.data ? v.data + " · " : ""}
+                          {v.tipo === "ricavo" && q < 100 ? "alle associazioni " + q + "%" : ""}
+                          {v.ripartita === false ? (v.tipo === "ricavo" && q < 100 ? " · " : "") + "non ripartita" : ""}
+                        </div>
+                      </td>
+                      <td data-label="Associazione">{v.ente ? nomeEnte(v.ente) : <span className="imp muted">da assegnare</span>}</td>
+                      <td data-label="Controparte">{nomeSoggetto(v.soggetto)}</td>
+                      <td data-label="Preventivo" className="num">{euro(v.preventivo)}</td>
+                      <td data-label="Consuntivo" className="num">
+                        {(v.consuntivo === null || v.consuntivo === undefined) ? <span className="imp muted">—</span> : euro(v.consuntivo)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
         </div>
       )}
 
+      {sotto === "ripartizione" && (
+        <div>
+          <div className="panel">
+            <h2>Come si chiude</h2>
+            <table className="tab-cards">
+              <tbody>
+                <tr><td data-label="Voce">Ricavi lordi incassati</td><td className="num" data-label="Importo">{euro(R.ricaviLordi)}</td></tr>
+                <tr><td data-label="Voce">Da girare alle attività commerciali</td><td className="num imp neg" data-label="Importo">− {euro(R.girate)}</td></tr>
+                <tr><td data-label="Voce">Ricavi netti delle associazioni</td><td className="num imp pos" data-label="Importo">{euro(R.ricaviNetti)}</td></tr>
+                <tr><td data-label="Voce">Costi</td><td className="num imp neg" data-label="Importo">− {euro(R.costi)}</td></tr>
+                <tr><td data-label="Voce"><b>Risultato da ripartire</b></td><td className={"num imp " + (R.risultato >= 0 ? "pos" : "neg")} data-label="Importo"><b>{euro(R.risultato)}</b></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="panel">
+            <h2>Chi ha in mano cosa</h2>
+            <p className="hint">Disponibile = incassato − quanto deve girare alle attività − costi pagati. Il conguaglio positivo si riceve, quello negativo si versa.</p>
+            <table className="tab-cards">
+              <thead><tr><th>Associazione</th><th>Incassato</th><th>Da girare</th><th>Costi</th><th>Disponibile</th><th>Spettante</th><th>Conguaglio</th></tr></thead>
+              <tbody>
+                {R.enti.map(e => (
+                  <tr key={e.ente.id}>
+                    <td data-label="Associazione"><b>{e.ente.nome}</b><div className="fin-sub">quota {e.ente.quota}%{e.propri ? " · proprie " + euro(e.propri) : ""}</div></td>
+                    <td className="num" data-label="Incassato">{euro(e.incassi)}</td>
+                    <td className="num" data-label="Da girare">{euro(e.daGirare)}</td>
+                    <td className="num" data-label="Costi">{euro(e.costi)}</td>
+                    <td className="num" data-label="Disponibile">{euro(e.disponibile)}</td>
+                    <td className="num" data-label="Spettante">{euro(e.spettante)}</td>
+                    <td className={"num imp " + (e.conguaglio >= 0 ? "pos" : "neg")} data-label="Conguaglio">{euro(e.conguaglio)}</td>
+                  </tr>
+                ))}
+                {R.enti.length === 0 && <tr><td colSpan="7" className="hint">Crea le associazioni nella scheda "Associazioni".</td></tr>}
+              </tbody>
+            </table>
+            {R.quotaTot !== 100 && R.enti.length > 0 && (
+              <p className="hint" style={{ color: "var(--rosso)", marginTop: 8 }}>Attenzione: le quote sommano {R.quotaTot}% invece di 100%.</p>
+            )}
+          </div>
+
+          <div className="panel">
+            <h2>Controparti</h2>
+            <table className="tab-cards">
+              <thead><tr><th>Controparte</th><th>Incassato lordo</th><th>Da girare a loro</th><th>Costi verso di loro</th><th>Saldo</th></tr></thead>
+              <tbody>
+                {R.controparti.map(c => (
+                  <tr key={c.id || "nessuno"}>
+                    <td data-label="Controparte">{c.id ? nomeSoggetto(c.id) : "(senza controparte)"}</td>
+                    <td className="num" data-label="Incassato">{euro(c.incassato)}</td>
+                    <td className="num" data-label="Da girare">{euro(c.daGirare)}</td>
+                    <td className="num" data-label="Costi">{euro(c.costi)}</td>
+                    <td className="num imp neg" data-label="Saldo">{euro(c.daGirare + c.costi)}</td>
+                  </tr>
+                ))}
+                {R.controparti.length === 0 && <tr><td colSpan="5" className="hint">Ancora nessun movimento.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {sotto === "anagrafica" && (
         <div className="panel">
-          <p className="hint">Chi incassa o paga per conto dell'associazione: persone, fornitori, enti. Collegali alle voci di costo/ricavo qui sopra.</p>
+          <p className="hint">Chi paghiamo o da chi incassiamo: fornitori (Centro Carni, Ghidoni, i DJ…) e attività commerciali come Ciccio o Il Varco.
+            Per le attività indica la percentuale dell'incasso che resta alle associazioni: viene proposta in automatico su ogni loro ricavo.</p>
           {soggetti.length > 0 && (
             <table className="tab-cards">
-              <thead><tr><th>Nome</th><th>Tipo</th><th>Contatto</th><th></th></tr></thead>
+              <thead><tr><th>Nome</th><th>Tipo</th><th>% alle assoc.</th><th>Contatto</th><th></th></tr></thead>
               <tbody>
                 {soggetti.map(s => (
                   <tr key={s.id}>
@@ -3205,6 +3497,12 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
                       <select value={s.tipo} onChange={e => patchSoggetto(s.id, { tipo: e.target.value }, "ha aggiornato l'anagrafica di " + s.nome)}>
                         {TIPI_SOGGETTO.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
                       </select></td>
+                    <td data-label="% alle assoc." className="num">
+                      {s.tipo === "attivita"
+                        ? <input type="number" min="0" max="100" step="0.5" value={s.retro === undefined ? 100 : s.retro}
+                          onChange={e => patchSoggetto(s.id, { retro: e.target.value === "" ? "" : parseFloat(e.target.value) })}
+                          onBlur={() => log("ha aggiornato la percentuale di " + s.nome)} />
+                        : <span className="imp muted">100%</span>}</td>
                     <td data-label="Contatto">
                       <input value={s.contatto || ""} placeholder="telefono, email…"
                         onChange={e => patchSoggetto(s.id, { contatto: e.target.value })}
@@ -3216,14 +3514,19 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
             </table>
           )}
           {soggetti.length === 0 && <p className="hint">Ancora nessuno in anagrafica.</p>}
-          <div className="row" style={{ marginTop: 12, alignItems: "flex-end" }}>
+          <div className="row" style={{ marginTop: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div className="field"><label>Nome</label>
               <input value={nuovoSoggetto.nome} onChange={e => setNuovoSoggetto(p => ({ ...p, nome: e.target.value }))}
-                onKeyDown={e => e.key === "Enter" && aggiungiSoggetto()} placeholder="Es. Mario Rossi" /></div>
-            <div className="field" style={{ maxWidth: 170 }}><label>Tipo</label>
+                onKeyDown={e => e.key === "Enter" && aggiungiSoggetto()} placeholder="Es. Centro Carni" /></div>
+            <div className="field" style={{ maxWidth: 190 }}><label>Tipo</label>
               <select value={nuovoSoggetto.tipo} onChange={e => setNuovoSoggetto(p => ({ ...p, tipo: e.target.value }))}>
                 {TIPI_SOGGETTO.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select></div>
+            {nuovoSoggetto.tipo === "attivita" && (
+              <div className="field" style={{ maxWidth: 130 }}><label>% alle assoc.</label>
+                <input type="number" min="0" max="100" step="0.5" value={nuovoSoggetto.retro}
+                  onChange={e => setNuovoSoggetto(p => ({ ...p, retro: e.target.value }))} /></div>
+            )}
             <div className="field"><label>Contatto</label>
               <input value={nuovoSoggetto.contatto} onChange={e => setNuovoSoggetto(p => ({ ...p, contatto: e.target.value }))}
                 onKeyDown={e => e.key === "Enter" && aggiungiSoggetto()} placeholder="telefono, email…" /></div>
@@ -3232,8 +3535,38 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
         </div>
       )}
 
+      {sotto === "enti" && (
+        <div className="panel">
+          <p className="hint">Le associazioni che organizzano il festival. La quota è la fetta di risultato che spetta a ciascuna: deve fare 100%.</p>
+          <table className="tab-cards">
+            <thead><tr><th>Associazione</th><th>Quota %</th><th></th></tr></thead>
+            <tbody>
+              {enti.map(e => (
+                <tr key={e.id}>
+                  <td data-label="Associazione"><input value={e.nome} onChange={ev => patchEnte(e.id, { nome: ev.target.value })}
+                    onBlur={() => log("ha aggiornato l'associazione " + e.nome)} /></td>
+                  <td data-label="Quota %" className="num"><input type="number" min="0" max="100" step="0.01" value={e.quota}
+                    onChange={ev => patchEnte(e.id, { quota: ev.target.value === "" ? "" : parseFloat(ev.target.value) })}
+                    onBlur={() => log("ha aggiornato la quota di " + e.nome)} /></td>
+                  <td><button className="btn ghost sm" onClick={() => eliminaEnte(e.id)}>Elimina</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className={"hint" + (R.quotaTot === 100 ? "" : "")} style={{ marginTop: 8, color: R.quotaTot === 100 ? "var(--verde)" : "var(--rosso)" }}>
+            Totale quote: {R.quotaTot}%
+          </p>
+          <div className="row" style={{ marginTop: 12, alignItems: "flex-end" }}>
+            <div className="field"><label>Nuova associazione</label>
+              <input value={nuovoEnte} onChange={e => setNuovoEnte(e.target.value)} onKeyDown={e => e.key === "Enter" && aggiungiEnte()} placeholder="Es. Pro Loco" /></div>
+            <button className="btn sm" onClick={aggiungiEnte}>Aggiungi</button>
+            <button className="btn ghost sm" onClick={quoteParitarie}>Quote uguali</button>
+          </div>
+        </div>
+      )}
+
       {modaleVoce && (
-        <ModaleVoce dati={modaleVoce} soggetti={soggetti}
+        <ModaleVoce dati={modaleVoce} soggetti={soggetti} enti={enti}
           onChiudi={() => setModaleVoce(null)} onSalva={salvaVoce} onElimina={eliminaVoce} />
       )}
     </div>
@@ -3241,13 +3574,20 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
 }
 
 /* ---------- Modale voce costo/ricavo ---------- */
-function ModaleVoce({ dati, soggetti, onSalva, onElimina, onChiudi }) {
+function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
   const [f, setF] = useState(() => ({
-    tipo: "costo", voce: "", soggetto: "", preventivo: 0, consuntivo: "", data: "", note: "",
+    tipo: "costo", voce: "", ente: "", soggetto: "", preventivo: 0, consuntivo: "", quotaAssoc: 100, ripartita: true, data: "", note: "",
     ...dati,
+    quotaAssoc: (dati && dati.quotaAssoc != null) ? dati.quotaAssoc : 100,
     consuntivo: (dati && dati.consuntivo != null) ? dati.consuntivo : ""
   }));
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const scegliSoggetto = (id) => {
+    const s = soggetti.find(x => x.id === id);
+    setF(p => ({ ...p, soggetto: id, quotaAssoc: (s && s.tipo === "attivita" && s.retro !== undefined && s.retro !== "") ? s.retro : p.quotaAssoc }));
+  };
+  const imp = (f.consuntivo === "" || f.consuntivo === null || f.consuntivo === undefined) ? (parseFloat(f.preventivo) || 0) : (parseFloat(f.consuntivo) || 0);
+  const q = Math.min(100, Math.max(0, parseFloat(f.quotaAssoc) || 0));
   return (
     <div className="overlay" onClick={onChiudi}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -3257,14 +3597,19 @@ function ModaleVoce({ dati, soggetti, onSalva, onElimina, onChiudi }) {
             <select value={f.tipo} onChange={e => set("tipo", e.target.value)}>
               <option value="costo">Costo</option><option value="ricavo">Ricavo</option>
             </select></div>
-          <div className="field"><label>Soggetto</label>
-            <select value={f.soggetto} onChange={e => set("soggetto", e.target.value)}>
-              <option value="">—</option>
-              {soggetti.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          <div className="field"><label>Associazione</label>
+            <select value={f.ente} onChange={e => set("ente", e.target.value)}>
+              <option value="">— chi paga / incassa —</option>
+              {enti.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
             </select></div>
         </div>
+        <div className="field"><label>Controparte</label>
+          <select value={f.soggetto} onChange={e => scegliSoggetto(e.target.value)}>
+            <option value="">—</option>
+            {soggetti.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </select></div>
         <div className="field"><label>Voce</label>
-          <input autoFocus value={f.voce} onChange={e => set("voce", e.target.value)} placeholder="Es. Service audio, Biglietteria, SIAE…" /></div>
+          <input autoFocus value={f.voce} onChange={e => set("voce", e.target.value)} placeholder="Es. Carne, Service audio, Incasso bar…" /></div>
         <div className="row">
           <div className="field"><label>Preventivo (€)</label>
             <input type="number" step="0.01" min="0" value={f.preventivo} onChange={e => set("preventivo", e.target.value)} /></div>
@@ -3273,6 +3618,16 @@ function ModaleVoce({ dati, soggetti, onSalva, onElimina, onChiudi }) {
           <div className="field"><label>Data</label>
             <input type="date" value={f.data || ""} onChange={e => set("data", e.target.value)} /></div>
         </div>
+        {f.tipo === "ricavo" && (
+          <div className="field"><label>% dell'incasso che resta alle associazioni</label>
+            <input type="number" step="0.5" min="0" max="100" value={f.quotaAssoc} onChange={e => set("quotaAssoc", e.target.value)} />
+            <p className="hint">Su {euro(imp)} restano {euro(imp * q / 100)} alle associazioni e {euro(imp - imp * q / 100)} vanno girati alla controparte. Per gli incassi normali lascia 100.</p>
+          </div>
+        )}
+        <label className="check" style={{ margin: "4px 0 10px" }}>
+          <input type="checkbox" checked={f.ripartita !== false} onChange={e => set("ripartita", e.target.checked)} />
+          Entra nella ripartizione fra le associazioni
+        </label>
         <div className="field"><label>Note</label>
           <textarea value={f.note} onChange={e => set("note", e.target.value)} /></div>
         <div className="row" style={{ marginTop: 12 }}>
@@ -3282,6 +3637,8 @@ function ModaleVoce({ dati, soggetti, onSalva, onElimina, onChiudi }) {
               ...f, voce: f.voce.trim(),
               preventivo: parseFloat(f.preventivo) || 0,
               consuntivo: (f.consuntivo === "" || f.consuntivo === null || f.consuntivo === undefined) ? null : (parseFloat(f.consuntivo) || 0),
+              quotaAssoc: f.tipo === "ricavo" ? q : 100,
+              ripartita: f.ripartita !== false,
               creata: f.creata || Date.now()
             });
           }}>Salva</button>
