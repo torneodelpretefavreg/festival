@@ -883,7 +883,11 @@ function useDati() {
 
   const salvaFinanze = useCallback((next) => {
     setFinanze(next);
-    if (db) return db.collection("impostazioni").doc("finanze").set(next);
+    if (db) {
+      const pulito = JSON.parse(JSON.stringify(next)); /* Firestore rifiuta i valori undefined */
+      return db.collection("impostazioni").doc("finanze").set(pulito)
+        .catch(e => { console.error(e); alert("Salvataggio non riuscito: " + (e && e.message ? e.message : e)); });
+    }
     salvaLocale({ finanze: next });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera]);
 
@@ -3193,7 +3197,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
       ? voci.map(x => (x.id === dati.id ? dati : x))
       : [...voci, { ...dati, id: dati.id || uid() }];
     onSalva({ ...finanze, voci: next });
-    log((v.id ? "ha modificato la voce " : "ha inserito la voce ") + v.voce + " (" + (v.tipo === "ricavo" ? "ricavo" : "costo") + ")");
+    log((v.id ? "ha modificato la voce " : "ha inserito la voce ") + v.voce + " (" + tipoVoceLabel(v.tipo) + ")");
     setModaleVoce(null); mostra("Voce salvata");
   };
   const eliminaVoce = (id) => {
@@ -3618,7 +3622,8 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
     quotaAssoc: (dati && dati.quotaAssoc != null) ? dati.quotaAssoc : 100,
     consuntivo: (dati && dati.consuntivo != null) ? dati.consuntivo : ""
   }));
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const [errore, setErrore] = useState("");
+  const set = (k, v) => { setErrore(""); setF(p => ({ ...p, [k]: v })); };
   const scegliSoggetto = (id) => {
     const s = soggetti.find(x => x.id === id);
     setF(p => ({ ...p, soggetto: id, quotaAssoc: (s && s.tipo === "attivita" && s.retro !== undefined && s.retro !== "") ? s.retro : p.quotaAssoc }));
@@ -3668,7 +3673,8 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
             {soggetti.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
           </select></div>}
         <div className="field"><label>Voce</label>
-          <input autoFocus value={f.voce} onChange={e => set("voce", e.target.value)} placeholder="Es. Carne, Service audio, Incasso bar…" /></div>
+          <input autoFocus value={f.voce || ""} onChange={e => set("voce", e.target.value)}
+            placeholder={f.tipo === "fondo" ? "Fondo cassa (se lasci vuoto)" : "Es. Carne, Service audio, Incasso bar…"} /></div>
         <div className="row">
           <div className="field"><label>{f.tipo === "fondo" || f.tipo === "prelievo" ? "Previsto (€)" : "Preventivo (€)"}</label>
             <input type="number" step="0.01" min="0" value={f.preventivo} onChange={e => set("preventivo", e.target.value)} /></div>
@@ -3693,9 +3699,11 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
           <textarea value={f.note} onChange={e => set("note", e.target.value)} /></div>
         <div className="row" style={{ marginTop: 12 }}>
           <button className="btn" onClick={() => {
-            if (!f.voce.trim()) return;
+            const nome = String(f.voce || "").trim() || (f.tipo === "fondo" ? "Fondo cassa" : "");
+            if (!nome) { setErrore("Scrivi il nome della voce prima di salvare."); return; }
+            if (f.tipo === "fondo" && !f.ente) { setErrore("Scegli chi ha messo il fondo cassa."); return; }
             onSalva({
-              ...f, voce: f.voce.trim(),
+              ...f, voce: nome,
               preventivo: parseFloat(f.preventivo) || 0,
               consuntivo: (f.consuntivo === "" || f.consuntivo === null || f.consuntivo === undefined) ? null : (parseFloat(f.consuntivo) || 0),
               quotaAssoc: f.tipo === "ricavo" ? q : 100,
@@ -3707,6 +3715,7 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
           }}>Salva</button>
           <button className="btn ghost" onClick={onChiudi}>Annulla</button>
         </div>
+        {errore && <p className="hint" style={{ color: "var(--rosso)", marginTop: 8 }}>{errore}</p>}
         {f.id && <button className="btn danger block sm" style={{ marginTop: 8 }}
           onClick={() => { if (confirm("Eliminare la voce \"" + f.voce + "\"?")) onElimina(f.id); }}>Elimina voce</button>}
       </div>
