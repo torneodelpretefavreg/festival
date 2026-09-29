@@ -621,7 +621,7 @@ function calcolaRipartizione(voci, enti) {
   const perEnte = {};
   enti.forEach(e => { perEnte[e.id] = { ente: e, incassi: 0, daGirare: 0, costi: 0, prelievi: 0, fondi: 0, fondoInCassa: 0, propri: 0, disponibile: 0, spettante: 0, conguaglio: 0 }; });
   const perCp = {};
-  let ricaviLordi = 0, ricaviNetti = 0, girate = 0, costi = 0, prelievi = 0, fondi = 0, fondiRestituiti = 0, propri = 0, senzaEnte = 0, daConsuntivare = 0;
+  let ricaviLordi = 0, ricaviNetti = 0, girate = 0, costi = 0, prelievi = 0, fondi = 0, fondiInclusi = 0, fondiRestituiti = 0, propri = 0, senzaEnte = 0, daConsuntivare = 0;
 
   voci.forEach(v => {
     const imp = importoVoce(v), q = quotaAssoc(v);
@@ -632,14 +632,15 @@ function calcolaRipartizione(voci, enti) {
     const cp = v.soggetto || "";
     if (!perCp[cp]) perCp[cp] = { id: cp, incassato: 0, daGirare: 0, costi: 0 };
     if (v.tipo === "fondo") {
-      /* fondo cassa anticipato da un'associazione: non è né costo né ricavo, va solo restituito */
-      if (v.restituito) fondiRestituiti += imp;
-      else {
-        fondi += imp;
-        if (e) e.fondi += imp;
-        const p = perEnte[v.presso || v.ente];
-        if (p) p.fondoInCassa += imp;
-      }
+      /* fondo cassa anticipato da un'associazione: non è né costo né ricavo, va solo restituito.
+         "incluso" = quei soldi sono già dentro un incasso registrato, quindi non si aggiungono di nuovo. */
+      const st = v.statoFondo || (v.restituito ? "restituito" : "presso");
+      if (st === "restituito") { fondiRestituiti += imp; return; }
+      fondi += imp;
+      if (e) e.fondi += imp;
+      if (st === "presso") { const p = perEnte[v.presso || v.ente]; if (p) p.fondoInCassa += imp; }
+      /* se è già dentro un incasso registrato, va tolto dai ricavi: non è roba venduta */
+      else { fondiInclusi += imp; ricaviNetti -= imp; }
       return;
     }
     if (v.tipo === "prelievo") {
@@ -651,8 +652,16 @@ function calcolaRipartizione(voci, enti) {
     if (v.tipo === "ricavo") {
       const netto = imp * q / 100, gira = imp - netto;
       perCp[cp].incassato += imp; perCp[cp].daGirare += gira;
-      if (e) { e.incassi += imp; e.daGirare += gira; if (!ripartita) e.propri += netto; }
-      if (ripartita) { ricaviLordi += imp; ricaviNetti += netto; girate += gira; } else propri += netto;
+      if (v.incluso) {
+        /* l'incasso lordo è già dentro un'altra voce (il totale contato in cassa):
+           qui si registra solo la quota da girare all'attività commerciale */
+        if (e) e.daGirare += gira;
+        if (ripartita) { girate += gira; ricaviNetti -= gira; }
+        else { propri -= gira; if (e) e.propri -= gira; }
+      } else {
+        if (e) { e.incassi += imp; e.daGirare += gira; if (!ripartita) e.propri += netto; }
+        if (ripartita) { ricaviLordi += imp; ricaviNetti += netto; girate += gira; } else propri += netto;
+      }
     } else {
       perCp[cp].costi += imp;
       if (e) { e.costi += imp; if (!ripartita) e.propri -= imp; }
@@ -673,7 +682,7 @@ function calcolaRipartizione(voci, enti) {
   const controparti = Object.keys(perCp).map(k => perCp[k])
     .sort((a, b) => (b.incassato + b.costi) - (a.incassato + a.costi));
 
-  return { enti: lista, controparti, ricaviLordi, ricaviNetti, girate, costi, risultato, prelievi, fondi, fondiRestituiti, propri, senzaEnte, daConsuntivare, quotaTot };
+  return { enti: lista, controparti, ricaviLordi, ricaviNetti, girate, costi, risultato, prelievi, fondi, fondiInclusi, fondiRestituiti, propri, senzaEnte, daConsuntivare, quotaTot };
 }
 const TIPI_VOCE = [
   { id: "costo", label: "Costo" },
@@ -681,6 +690,12 @@ const TIPI_VOCE = [
   { id: "prelievo", label: "Prelievo in natura" },
   { id: "fondo", label: "Fondo cassa" }
 ];
+const statoFondoLabel = (v, nomeEnte) => {
+  const st = v.statoFondo || (v.restituito ? "restituito" : "presso");
+  if (st === "restituito") return "già restituito";
+  if (st === "incluso") return "da restituire · già dentro un incasso registrato";
+  return "da restituire · in cassa a " + nomeEnte(v.presso || v.ente);
+};
 const tipoVoceLabel = (id) => (TIPI_VOCE.find(t => t.id === (id || "costo")) || TIPI_VOCE[0]).label.toLowerCase();
 const tipoSoggettoLabel = (id) => (TIPI_SOGGETTO.find(t => t.id === id) || TIPI_SOGGETTO[3]).label;
 const euro = (n) => (Number(n) || 0).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
@@ -883,11 +898,7 @@ function useDati() {
 
   const salvaFinanze = useCallback((next) => {
     setFinanze(next);
-    if (db) {
-      const pulito = JSON.parse(JSON.stringify(next)); /* Firestore rifiuta i valori undefined */
-      return db.collection("impostazioni").doc("finanze").set(pulito)
-        .catch(e => { console.error(e); alert("Salvataggio non riuscito: " + (e && e.message ? e.message : e)); });
-    }
+    if (db) return db.collection("impostazioni").doc("finanze").set(next);
     salvaLocale({ finanze: next });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera]);
 
@@ -3197,7 +3208,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
       ? voci.map(x => (x.id === dati.id ? dati : x))
       : [...voci, { ...dati, id: dati.id || uid() }];
     onSalva({ ...finanze, voci: next });
-    log((v.id ? "ha modificato la voce " : "ha inserito la voce ") + v.voce + " (" + tipoVoceLabel(v.tipo) + ")");
+    log((v.id ? "ha modificato la voce " : "ha inserito la voce ") + v.voce + " (" + (v.tipo === "ricavo" ? "ricavo" : "costo") + ")");
     setModaleVoce(null); mostra("Voce salvata");
   };
   const eliminaVoce = (id) => {
@@ -3262,7 +3273,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
   /* ---------- Esportazioni ---------- */
   const righeDettaglio = () => {
     const h = ["Tipo", "Voce", "Associazione", "Controparte", "Preventivo", "Consuntivo", "Importo usato",
-      "% alle associazioni", "Netto associazioni", "Da girare", "Ripartita", "Data", "Note"];
+      "% alle associazioni", "Netto associazioni", "Da girare", "Già compreso altrove", "Ripartita", "Data", "Note"];
     const r = voci.slice().sort((a, b) => String(a.tipo).localeCompare(String(b.tipo)) || String(a.voce).localeCompare(String(b.voce), "it")).map(v => {
       const imp = importoVoce(v), q = quotaAssoc(v);
       const netto = v.tipo === "ricavo" ? imp * q / 100 : imp;
@@ -3270,7 +3281,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
       return [et, v.voce, nomeEnte(v.ente), nomeSoggetto(v.soggetto),
         Number(v.preventivo) || 0, (v.consuntivo === null || v.consuntivo === undefined) ? "" : Number(v.consuntivo) || 0,
         imp, v.tipo === "ricavo" ? q : 100, +netto.toFixed(2), v.tipo === "ricavo" ? +(imp - netto).toFixed(2) : 0,
-        v.ripartita === false ? "no" : "sì", v.data || "", v.note || ""];
+        v.tipo === "ricavo" && v.incluso ? "sì" : "", v.ripartita === false ? "no" : "sì", v.data || "", v.note || ""];
     });
     return [h].concat(r);
   };
@@ -3303,6 +3314,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
     ["Risultato da ripartire", +R.risultato.toFixed(2)],
     ["", ""],
     ["Fondi cassa anticipati, da restituire", +R.fondi.toFixed(2)],
+    ["Di cui già compresi negli incassi contati", +R.fondiInclusi.toFixed(2)],
     ["Fondi cassa già restituiti", +R.fondiRestituiti.toFixed(2)],
     ["Voci non ripartite (di singole associazioni)", +R.propri.toFixed(2)],
     ["Voci senza associazione", R.senzaEnte],
@@ -3436,7 +3448,8 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
                         <div className="fin-sub">
                           {v.data ? v.data + " · " : ""}
                           {v.tipo === "ricavo" && q < 100 ? "alle associazioni " + q + "%" : ""}
-                          {v.tipo === "fondo" ? (v.restituito ? "già restituito" : "da restituire" + (v.presso && v.presso !== v.ente ? " · in cassa a " + nomeEnte(v.presso) : "")) : ""}
+                          {v.tipo === "fondo" ? statoFondoLabel(v, nomeEnte) : ""}
+                          {v.tipo === "ricavo" && v.incluso ? " · già compreso in un altro incasso" : ""}
                           {v.ripartita === false && v.tipo !== "fondo" ? "non ripartita" : ""}
                         </div>
                       </td>
@@ -3468,6 +3481,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
                 <tr><td data-label="Voce">Costi</td><td className="num imp neg" data-label="Importo">− {euro(R.costi)}</td></tr>
                 <tr><td data-label="Voce"><b>Risultato da ripartire</b></td><td className={"num imp " + (R.risultato >= 0 ? "pos" : "neg")} data-label="Importo"><b>{euro(R.risultato)}</b></td></tr>
                 {R.fondi > 0 && <tr><td data-label="Voce">Fondi cassa anticipati, da restituire (fuori dal risultato)</td><td className="num" data-label="Importo">{euro(R.fondi)}</td></tr>}
+                {R.fondiInclusi > 0 && <tr><td data-label="Voce">Di cui già dentro gli incassi contati e quindi tolti dai ricavi</td><td className="num" data-label="Importo">− {euro(R.fondiInclusi)}</td></tr>}
               </tbody>
             </table>
           </div>
@@ -3617,13 +3631,12 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
 /* ---------- Modale voce costo/ricavo ---------- */
 function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
   const [f, setF] = useState(() => ({
-    tipo: "costo", voce: "", ente: "", presso: "", soggetto: "", preventivo: 0, consuntivo: "", quotaAssoc: 100, ripartita: true, restituito: false, data: "", note: "",
+    tipo: "costo", voce: "", ente: "", presso: "", statoFondo: "incluso", incluso: false, soggetto: "", preventivo: 0, consuntivo: "", quotaAssoc: 100, ripartita: true, restituito: false, data: "", note: "",
     ...dati,
     quotaAssoc: (dati && dati.quotaAssoc != null) ? dati.quotaAssoc : 100,
     consuntivo: (dati && dati.consuntivo != null) ? dati.consuntivo : ""
   }));
-  const [errore, setErrore] = useState("");
-  const set = (k, v) => { setErrore(""); setF(p => ({ ...p, [k]: v })); };
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const scegliSoggetto = (id) => {
     const s = soggetti.find(x => x.id === id);
     setF(p => ({ ...p, soggetto: id, quotaAssoc: (s && s.tipo === "attivita" && s.retro !== undefined && s.retro !== "") ? s.retro : p.quotaAssoc }));
@@ -3656,15 +3669,19 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
             <p className="hint" style={{ margin: "0 0 8px" }}>
               Soldi anticipati per far partire le casse. Non sono né costo né ricavo: tornano a chi li ha messi prima di dividere il resto.
             </p>
-            <div className="field"><label>Adesso quei soldi sono in mano a</label>
-              <select value={f.presso || f.ente || ""} onChange={e => set("presso", e.target.value)}>
-                <option value="">— chi li ha messi —</option>
-                {enti.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+            <div className="field"><label>Dove sono adesso quei soldi</label>
+              <select value={f.statoFondo || (f.restituito ? "restituito" : "incluso")} onChange={e => set("statoFondo", e.target.value)}>
+                <option value="incluso">Già compresi in un incasso registrato</option>
+                <option value="presso">Ancora in cassa, in mano a…</option>
+                <option value="restituito">Già restituiti</option>
               </select></div>
-            <label className="check" style={{ margin: "0 0 10px" }}>
-              <input type="checkbox" checked={!!f.restituito} onChange={e => set("restituito", e.target.checked)} />
-              Già restituito
-            </label>
+            {(f.statoFondo || "incluso") === "presso" && (
+              <div className="field"><label>In mano a</label>
+                <select value={f.presso || f.ente || ""} onChange={e => set("presso", e.target.value)}>
+                  <option value="">— chi li ha messi —</option>
+                  {enti.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+                </select></div>
+            )}
           </div>
         )}
         {f.tipo !== "fondo" && <div className="field"><label>Controparte</label>
@@ -3673,8 +3690,7 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
             {soggetti.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
           </select></div>}
         <div className="field"><label>Voce</label>
-          <input autoFocus value={f.voce || ""} onChange={e => set("voce", e.target.value)}
-            placeholder={f.tipo === "fondo" ? "Fondo cassa (se lasci vuoto)" : "Es. Carne, Service audio, Incasso bar…"} /></div>
+          <input autoFocus value={f.voce} onChange={e => set("voce", e.target.value)} placeholder="Es. Carne, Service audio, Incasso bar…" /></div>
         <div className="row">
           <div className="field"><label>{f.tipo === "fondo" || f.tipo === "prelievo" ? "Previsto (€)" : "Preventivo (€)"}</label>
             <input type="number" step="0.01" min="0" value={f.preventivo} onChange={e => set("preventivo", e.target.value)} /></div>
@@ -3686,7 +3702,15 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
         {f.tipo === "ricavo" && (
           <div className="field"><label>% dell'incasso che resta alle associazioni</label>
             <input type="number" step="0.5" min="0" max="100" value={f.quotaAssoc} onChange={e => set("quotaAssoc", e.target.value)} />
-            <p className="hint">Su {euro(imp)} restano {euro(imp * q / 100)} alle associazioni e {euro(imp - imp * q / 100)} vanno girati alla controparte. Per gli incassi normali lascia 100.</p>
+            <label className="check" style={{ margin: "8px 0 4px" }}>
+              <input type="checkbox" checked={!!f.incluso} onChange={e => set("incluso", e.target.checked)} />
+              Questo incasso è già compreso in un'altra voce (es. nel totale contato in cassa)
+            </label>
+            <p className="hint">
+              {f.incluso
+                ? "Su " + euro(imp) + " di incasso, alle associazioni restano " + euro(imp * q / 100) + ": il lordo non viene ricontato, si registrano solo i " + euro(imp - imp * q / 100) + " da girare alla controparte."
+                : "Su " + euro(imp) + " restano " + euro(imp * q / 100) + " alle associazioni e " + euro(imp - imp * q / 100) + " vanno girati alla controparte. Per gli incassi normali lascia 100."}
+            </p>
           </div>
         )}
         {f.tipo !== "fondo" && (
@@ -3699,23 +3723,22 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
           <textarea value={f.note} onChange={e => set("note", e.target.value)} /></div>
         <div className="row" style={{ marginTop: 12 }}>
           <button className="btn" onClick={() => {
-            const nome = String(f.voce || "").trim() || (f.tipo === "fondo" ? "Fondo cassa" : "");
-            if (!nome) { setErrore("Scrivi il nome della voce prima di salvare."); return; }
-            if (f.tipo === "fondo" && !f.ente) { setErrore("Scegli chi ha messo il fondo cassa."); return; }
+            if (!f.voce.trim()) return;
             onSalva({
-              ...f, voce: nome,
+              ...f, voce: f.voce.trim(),
               preventivo: parseFloat(f.preventivo) || 0,
               consuntivo: (f.consuntivo === "" || f.consuntivo === null || f.consuntivo === undefined) ? null : (parseFloat(f.consuntivo) || 0),
               quotaAssoc: f.tipo === "ricavo" ? q : 100,
               ripartita: f.ripartita !== false,
-              restituito: f.tipo === "fondo" ? !!f.restituito : false,
+              statoFondo: f.tipo === "fondo" ? (f.statoFondo || "incluso") : "",
+              restituito: f.tipo === "fondo" && (f.statoFondo || "incluso") === "restituito",
               presso: f.tipo === "fondo" ? (f.presso || f.ente || "") : "",
+              incluso: f.tipo === "ricavo" ? !!f.incluso : false,
               creata: f.creata || Date.now()
             });
           }}>Salva</button>
           <button className="btn ghost" onClick={onChiudi}>Annulla</button>
         </div>
-        {errore && <p className="hint" style={{ color: "var(--rosso)", marginTop: 8 }}>{errore}</p>}
         {f.id && <button className="btn danger block sm" style={{ marginTop: 8 }}
           onClick={() => { if (confirm("Eliminare la voce \"" + f.voce + "\"?")) onElimina(f.id); }}>Elimina voce</button>}
       </div>
