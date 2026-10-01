@@ -496,6 +496,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script type="text/babel" data-presets="react">
@@ -621,7 +622,7 @@ function calcolaRipartizione(voci, enti) {
   const perEnte = {};
   enti.forEach(e => { perEnte[e.id] = { ente: e, incassi: 0, daGirare: 0, costi: 0, prelievi: 0, fondi: 0, fondoInCassa: 0, propri: 0, disponibile: 0, spettante: 0, conguaglio: 0 }; });
   const perCp = {};
-  let ricaviLordi = 0, ricaviNetti = 0, girate = 0, costi = 0, prelievi = 0, fondi = 0, fondiInclusi = 0, fondiRestituiti = 0, propri = 0, senzaEnte = 0, daConsuntivare = 0;
+  let ricaviLordi = 0, ricaviNetti = 0, girate = 0, costi = 0, prelievi = 0, fondi = 0, fondiRestituiti = 0, propri = 0, senzaEnte = 0, daConsuntivare = 0;
 
   voci.forEach(v => {
     const imp = importoVoce(v), q = quotaAssoc(v);
@@ -632,15 +633,14 @@ function calcolaRipartizione(voci, enti) {
     const cp = v.soggetto || "";
     if (!perCp[cp]) perCp[cp] = { id: cp, incassato: 0, daGirare: 0, costi: 0 };
     if (v.tipo === "fondo") {
-      /* fondo cassa anticipato da un'associazione: non è né costo né ricavo, va solo restituito.
-         "incluso" = quei soldi sono già dentro un incasso registrato, quindi non si aggiungono di nuovo. */
-      const st = v.statoFondo || (v.restituito ? "restituito" : "presso");
-      if (st === "restituito") { fondiRestituiti += imp; return; }
-      fondi += imp;
-      if (e) e.fondi += imp;
-      if (st === "presso") { const p = perEnte[v.presso || v.ente]; if (p) p.fondoInCassa += imp; }
-      /* se è già dentro un incasso registrato, va tolto dai ricavi: non è roba venduta */
-      else { fondiInclusi += imp; ricaviNetti -= imp; }
+      /* fondo cassa anticipato da un'associazione: non è né costo né ricavo, va solo restituito */
+      if (v.restituito) fondiRestituiti += imp;
+      else {
+        fondi += imp;
+        if (e) e.fondi += imp;
+        const p = perEnte[v.presso || v.ente];
+        if (p) p.fondoInCassa += imp;
+      }
       return;
     }
     if (v.tipo === "prelievo") {
@@ -652,16 +652,8 @@ function calcolaRipartizione(voci, enti) {
     if (v.tipo === "ricavo") {
       const netto = imp * q / 100, gira = imp - netto;
       perCp[cp].incassato += imp; perCp[cp].daGirare += gira;
-      if (v.incluso) {
-        /* l'incasso lordo è già dentro un'altra voce (il totale contato in cassa):
-           qui si registra solo la quota da girare all'attività commerciale */
-        if (e) e.daGirare += gira;
-        if (ripartita) { girate += gira; ricaviNetti -= gira; }
-        else { propri -= gira; if (e) e.propri -= gira; }
-      } else {
-        if (e) { e.incassi += imp; e.daGirare += gira; if (!ripartita) e.propri += netto; }
-        if (ripartita) { ricaviLordi += imp; ricaviNetti += netto; girate += gira; } else propri += netto;
-      }
+      if (e) { e.incassi += imp; e.daGirare += gira; if (!ripartita) e.propri += netto; }
+      if (ripartita) { ricaviLordi += imp; ricaviNetti += netto; girate += gira; } else propri += netto;
     } else {
       perCp[cp].costi += imp;
       if (e) { e.costi += imp; if (!ripartita) e.propri -= imp; }
@@ -682,7 +674,7 @@ function calcolaRipartizione(voci, enti) {
   const controparti = Object.keys(perCp).map(k => perCp[k])
     .sort((a, b) => (b.incassato + b.costi) - (a.incassato + a.costi));
 
-  return { enti: lista, controparti, ricaviLordi, ricaviNetti, girate, costi, risultato, prelievi, fondi, fondiInclusi, fondiRestituiti, propri, senzaEnte, daConsuntivare, quotaTot };
+  return { enti: lista, controparti, ricaviLordi, ricaviNetti, girate, costi, risultato, prelievi, fondi, fondiRestituiti, propri, senzaEnte, daConsuntivare, quotaTot };
 }
 const TIPI_VOCE = [
   { id: "costo", label: "Costo" },
@@ -690,12 +682,6 @@ const TIPI_VOCE = [
   { id: "prelievo", label: "Prelievo in natura" },
   { id: "fondo", label: "Fondo cassa" }
 ];
-const statoFondoLabel = (v, nomeEnte) => {
-  const st = v.statoFondo || (v.restituito ? "restituito" : "presso");
-  if (st === "restituito") return "già restituito";
-  if (st === "incluso") return "da restituire · già dentro un incasso registrato";
-  return "da restituire · in cassa a " + nomeEnte(v.presso || v.ente);
-};
 const tipoVoceLabel = (id) => (TIPI_VOCE.find(t => t.id === (id || "costo")) || TIPI_VOCE[0]).label.toLowerCase();
 const tipoSoggettoLabel = (id) => (TIPI_SOGGETTO.find(t => t.id === id) || TIPI_SOGGETTO[3]).label;
 const euro = (n) => (Number(n) || 0).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
@@ -898,7 +884,11 @@ function useDati() {
 
   const salvaFinanze = useCallback((next) => {
     setFinanze(next);
-    if (db) return db.collection("impostazioni").doc("finanze").set(next);
+    if (db) {
+      const pulito = JSON.parse(JSON.stringify(next)); /* Firestore rifiuta i valori undefined */
+      return db.collection("impostazioni").doc("finanze").set(pulito)
+        .catch(e => { console.error(e); alert("Salvataggio non riuscito: " + (e && e.message ? e.message : e)); });
+    }
     salvaLocale({ finanze: next });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera]);
 
@@ -2530,33 +2520,41 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
     ctx.restore();
   };
 
-  const componiCanvas = async () => {
-    const S = 2;
+  /* scala massima sicura: i browser mobili (Safari) rifiutano canvas oltre ~16,7 milioni di pixel */
+  const scalaExport = (max) => Math.max(1, Math.min(max, Math.sqrt(15500000 / (MAPPA_W * H))));
+  const caricaImg = (src) => new Promise(res => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = src;
+  });
+  const fontPronti = async () => { if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} } };
+
+  /* conSfondo=false → solo le forme su fondo trasparente (livello sovrapposto nel PDF) */
+  const componiCanvas = async (S = scalaExport(3), conSfondo = true) => {
     const c = document.createElement("canvas");
-    c.width = MAPPA_W * S; c.height = H * S;
+    c.width = Math.round(MAPPA_W * S); c.height = Math.round(H * S);
     const ctx = c.getContext("2d");
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
     ctx.scale(S, S);
-    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, MAPPA_W, H);
-    if (sfondoAttivo) {
-      await new Promise(res => {
-        const img = new Image();
-        img.onload = () => {
+    if (conSfondo) {
+      ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, MAPPA_W, H);
+      if (sfondoAttivo) {
+        const img = await caricaImg(sfondoAttivo);
+        if (img) {
           const s = Math.min(MAPPA_W / img.width, H / img.height);
           const w = img.width * s, h = img.height * s;
           ctx.drawImage(img, (MAPPA_W - w) / 2, (H - h) / 2, w, h);
-          res();
-        };
-        img.onerror = res;
-        img.src = sfondoAttivo;
-      });
+        }
+      }
     }
-    if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
+    await fontPronti();
     F.forEach(f => disegnaForma(ctx, f));
     return c;
   };
 
   const esportaPNG = async () => {
-    const c = await componiCanvas();
+    const c = await componiCanvas(scalaExport(3), true);
     const a = document.createElement("a");
     a.href = c.toDataURL("image/png");
     a.download = "mappa-festival-fabbrico.png";
@@ -2564,15 +2562,48 @@ function MappaView({ mappa, sfondo, isAdmin, onSalva, onSfondo, log, mostra, mob
     mostra("Immagine esportata");
   };
 
+  /* PDF a due livelli: la cartina originale (senza ricompressione) + le forme ad alta risoluzione in PNG trasparente */
   const esportaPDF = async () => {
     if (!window.jspdf || !window.jspdf.jsPDF) { mostra("Libreria PDF non caricata: uso il PNG"); return esportaPNG(); }
-    const c = await componiCanvas();
-    const dati = c.toDataURL("image/jpeg", 0.92);
+    mostra("Preparo il PDF…");
     const orizz = MAPPA_W >= H;
-    const pdf = new window.jspdf.jsPDF({ orientation: orizz ? "landscape" : "portrait", unit: "mm", format: "a4" });
+    const pdf = new window.jspdf.jsPDF({ orientation: orizz ? "landscape" : "portrait", unit: "mm", format: "a4", compress: true });
     const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight(), m = 8;
     const s = Math.min((pw - 2 * m) / MAPPA_W, (ph - 2 * m) / H);
-    pdf.addImage(dati, "JPEG", (pw - MAPPA_W * s) / 2, (ph - H * s) / 2, MAPPA_W * s, H * s);
+    const X = (pw - MAPPA_W * s) / 2, Y = (ph - H * s) / 2, W = MAPPA_W * s, Hh = H * s;
+    pdf.setFillColor(255, 255, 255); pdf.rect(X, Y, W, Hh, "F");
+
+    /* livello 1: cartina di sfondo */
+    if (sfondoAttivo) {
+      const img = await caricaImg(sfondoAttivo);
+      if (img) {
+        const k = Math.min(MAPPA_W / img.width, H / img.height);
+        const bw = img.width * k * s, bh = img.height * k * s;
+        const bx = X + (W - bw) / 2, by = Y + (Hh - bh) / 2;
+        const tipo = /^data:image\/(jpeg|jpg)/i.test(sfondoAttivo) ? "JPEG" : (/^data:image\/png/i.test(sfondoAttivo) ? "PNG" : null);
+        if (tipo) {
+          /* immagine caricata: la metto così com'è, senza perdere qualità */
+          pdf.addImage(sfondoAttivo, tipo, bx, by, bw, bh, "sfondo", "NONE");
+        } else {
+          /* sfondo vettoriale (SVG): lo rasterizzo ad alta risoluzione */
+          const S = scalaExport(4);
+          const c = document.createElement("canvas");
+          c.width = Math.round(img.width * k * S); c.height = Math.round(img.height * k * S);
+          const ctx = c.getContext("2d");
+          ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, c.width, c.height);
+          ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          pdf.addImage(c.toDataURL("image/png"), "PNG", bx, by, bw, bh, "sfondo", "FAST");
+        }
+      }
+    }
+
+    /* livello 2: forme, etichette e frecce (trasparenti) */
+    const forme = await componiCanvas(scalaExport(4), false);
+    pdf.addImage(forme.toDataURL("image/png"), "PNG", X, Y, W, Hh, "forme", "FAST");
+
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(7); pdf.setTextColor(150);
+    pdf.text("Festival di Fabbrico — mappa dell'area · " + new Date().toLocaleDateString("it-IT"), m, ph - 3);
     pdf.save("mappa-festival-fabbrico.pdf");
     log("ha esportato la mappa dell'area in PDF");
     mostra("PDF esportato");
@@ -3208,7 +3239,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
       ? voci.map(x => (x.id === dati.id ? dati : x))
       : [...voci, { ...dati, id: dati.id || uid() }];
     onSalva({ ...finanze, voci: next });
-    log((v.id ? "ha modificato la voce " : "ha inserito la voce ") + v.voce + " (" + (v.tipo === "ricavo" ? "ricavo" : "costo") + ")");
+    log((v.id ? "ha modificato la voce " : "ha inserito la voce ") + v.voce + " (" + tipoVoceLabel(v.tipo) + ")");
     setModaleVoce(null); mostra("Voce salvata");
   };
   const eliminaVoce = (id) => {
@@ -3273,7 +3304,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
   /* ---------- Esportazioni ---------- */
   const righeDettaglio = () => {
     const h = ["Tipo", "Voce", "Associazione", "Controparte", "Preventivo", "Consuntivo", "Importo usato",
-      "% alle associazioni", "Netto associazioni", "Da girare", "Già compreso altrove", "Ripartita", "Data", "Note"];
+      "% alle associazioni", "Netto associazioni", "Da girare", "Ripartita", "Data", "Note"];
     const r = voci.slice().sort((a, b) => String(a.tipo).localeCompare(String(b.tipo)) || String(a.voce).localeCompare(String(b.voce), "it")).map(v => {
       const imp = importoVoce(v), q = quotaAssoc(v);
       const netto = v.tipo === "ricavo" ? imp * q / 100 : imp;
@@ -3281,7 +3312,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
       return [et, v.voce, nomeEnte(v.ente), nomeSoggetto(v.soggetto),
         Number(v.preventivo) || 0, (v.consuntivo === null || v.consuntivo === undefined) ? "" : Number(v.consuntivo) || 0,
         imp, v.tipo === "ricavo" ? q : 100, +netto.toFixed(2), v.tipo === "ricavo" ? +(imp - netto).toFixed(2) : 0,
-        v.tipo === "ricavo" && v.incluso ? "sì" : "", v.ripartita === false ? "no" : "sì", v.data || "", v.note || ""];
+        v.ripartita === false ? "no" : "sì", v.data || "", v.note || ""];
     });
     return [h].concat(r);
   };
@@ -3314,7 +3345,6 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
     ["Risultato da ripartire", +R.risultato.toFixed(2)],
     ["", ""],
     ["Fondi cassa anticipati, da restituire", +R.fondi.toFixed(2)],
-    ["Di cui già compresi negli incassi contati", +R.fondiInclusi.toFixed(2)],
     ["Fondi cassa già restituiti", +R.fondiRestituiti.toFixed(2)],
     ["Voci non ripartite (di singole associazioni)", +R.propri.toFixed(2)],
     ["Voci senza associazione", R.senzaEnte],
@@ -3335,62 +3365,203 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
 
   const esportaPdf = () => {
     if (!window.jspdf || !window.jspdf.jsPDF) return mostra("Libreria PDF non disponibile");
-    const pdf = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pdf = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+    if (typeof pdf.autoTable !== "function") return mostra("Modulo tabelle PDF non caricato: ricarica la pagina");
     const PW = pdf.internal.pageSize.getWidth(), PH = pdf.internal.pageSize.getHeight(), M = 12;
+    const ACC = [192, 118, 26], INK = [28, 26, 34], GRIGIO = [120, 116, 128], VERDE = [27, 135, 100], ROSSO = [190, 55, 72];
+    const pct = (n) => (Number(n) || 0).toLocaleString("it-IT", { maximumFractionDigits: 2 }) + "%";
+    const stampato = new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" });
+    const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
     let y = M;
-    const nuova = () => { pdf.addPage(); y = M; };
-    const spazio = (h) => { if (y + h > PH - M) nuova(); };
-    const titolo = (t, sub) => {
-      pdf.setFont("helvetica", "bold"); pdf.setFontSize(16); pdf.setTextColor(20); pdf.text(t, M, y); y += 6;
-      if (sub) { pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(115); pdf.text(sub, M, y); y += 4; }
-      pdf.setDrawColor(190); pdf.line(M, y, PW - M, y); y += 6;
+
+    /* --- intestazione --- */
+    pdf.setFillColor(...ACC); pdf.rect(0, 0, PW, 3, "F");
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(18); pdf.setTextColor(...INK);
+    pdf.text("Festival Fabbrico", M, y + 7);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(12); pdf.setTextColor(...GRIGIO);
+    pdf.text("Costi, ricavi e ripartizione fra le associazioni", M, y + 13);
+    pdf.setFontSize(8.5);
+    pdf.text("Stampato il " + stampato, PW - M, y + 7, { align: "right" });
+    pdf.text("Importi consuntivi dove presenti, altrimenti preventivi", PW - M, y + 12, { align: "right" });
+    y += 19;
+
+    /* --- riquadri chiave --- */
+    const kpi = [
+      ["Ricavi netti", R.ricaviNetti, INK],
+      ["Costi", R.costi, INK],
+      ["Risultato da ripartire", R.risultato, R.risultato >= 0 ? VERDE : ROSSO],
+      ["Fondi cassa da restituire", R.fondi, INK]
+    ];
+    const gap = 4, kw = (PW - 2 * M - gap * (kpi.length - 1)) / kpi.length, kh = 16;
+    kpi.forEach(([lab, val, col], i) => {
+      const x = M + i * (kw + gap);
+      pdf.setFillColor(248, 245, 239); pdf.setDrawColor(225, 218, 205); pdf.setLineWidth(0.2);
+      pdf.roundedRect(x, y, kw, kh, 2, 2, "FD");
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(7.5); pdf.setTextColor(...GRIGIO);
+      pdf.text(lab.toUpperCase(), x + 4, y + 5.5);
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(13); pdf.setTextColor(...col);
+      pdf.text(euro(val), x + 4, y + 12.5);
+    });
+    y += kh + 5;
+
+    /* --- controlli di quadratura --- */
+    const sommaCong = round2(R.enti.reduce((t, e) => t + e.conguaglio, 0));
+    const avvisi = [];
+    if (R.enti.length && R.quotaTot !== 100) avvisi.push("Le quote sommano " + pct(R.quotaTot) + " invece di 100%: la ripartizione non quadra.");
+    if (R.senzaEnte > 0) avvisi.push(R.senzaEnte + (R.senzaEnte === 1 ? " voce non è intestata" : " voci non sono intestate") + " a nessuna associazione: entrano nel risultato ma non nella cassa di nessuno.");
+    if (Math.abs(sommaCong) >= 0.01) avvisi.push("La somma dei conguagli è " + euro(sommaCong) + " (dovrebbe essere zero).");
+    if (R.daConsuntivare > 0) avvisi.push(R.daConsuntivare + (R.daConsuntivare === 1 ? " voce è" : " voci sono") + " ancora a preventivo: i numeri sono provvisori.");
+    if (avvisi.length) {
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5);
+      const righe = avvisi.flatMap(a => pdf.splitTextToSize("•  " + a, PW - 2 * M - 8));
+      const h = righe.length * 4 + 5;
+      pdf.setFillColor(253, 243, 230); pdf.setDrawColor(...ACC); pdf.setLineWidth(0.3);
+      pdf.roundedRect(M, y, PW - 2 * M, h, 1.5, 1.5, "FD");
+      pdf.setTextColor(120, 70, 10);
+      righe.forEach((r, i) => pdf.text(r, M + 4, y + 5 + i * 4));
+      y += h + 5;
+    } else {
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(...VERDE);
+      pdf.text("Quadratura ok: quote al 100%, tutte le voci intestate, conguagli a somma zero.", M, y + 1);
+      y += 6;
+    }
+
+    /* --- stile comune tabelle --- */
+    const base = {
+      theme: "grid",
+      margin: { left: M, right: M, top: M + 4, bottom: 14 },
+      styles: { font: "helvetica", fontSize: 8.5, cellPadding: { top: 1.8, bottom: 1.8, left: 2, right: 2 }, textColor: INK, lineColor: [228, 222, 210], lineWidth: 0.15, valign: "middle", overflow: "linebreak" },
+      headStyles: { fillColor: [44, 40, 54], textColor: 255, fontStyle: "bold", fontSize: 7.8, valign: "bottom" },
+      footStyles: { fillColor: [240, 235, 225], textColor: INK, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [250, 248, 244] },
+      showFoot: "lastPage"
     };
-    const sezione = (t) => { spazio(14); pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(25); pdf.text(t, M, y); y += 5.5; };
-    const tabella = (righe, larg, numDa) => {
-      const x0 = M;
-      righe.forEach((r, i) => {
-        spazio(6);
-        if (i === 0) { pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.setTextColor(120); }
-        else { pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(35); }
-        let x = x0;
-        r.forEach((c, j) => {
-          const num = i > 0 && j >= numDa && typeof c === "number";
-          const testo = num ? euro(c) : String(c === null || c === undefined ? "" : c);
-          const w = larg[j];
-          if (num) pdf.text(pdf.splitTextToSize(testo, w)[0] || "", x + w - 2, y, { align: "right" });
-          else pdf.text(pdf.splitTextToSize(testo, w - 2)[0] || "", x, y);
-          x += w;
-        });
-        y += i === 0 ? 4 : 5;
-        if (i === 0) { pdf.setDrawColor(215); pdf.line(M, y - 3, PW - M, y - 3); y += 0.5; }
+    const titoloSezione = (t, nota) => {
+      if (y > PH - 40) { pdf.addPage(); y = M + 4; }
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(12.5); pdf.setTextColor(...INK);
+      pdf.text(t, M, y);
+      if (nota) { pdf.setFont("helvetica", "normal"); pdf.setFontSize(8); pdf.setTextColor(...GRIGIO); pdf.text(nota, M, y + 4.2); }
+      y += nota ? 7 : 3.5;
+    };
+    const dopo = () => { y = pdf.lastAutoTable.finalY + 9; };
+    const num = (n) => euro(n);
+
+    /* --- 1. Ripartizione --- */
+    titoloSezione("Ripartizione fra le associazioni", "Conguaglio positivo = l'associazione deve ricevere · negativo = deve versare");
+    const tot = (k) => R.enti.reduce((t, e) => t + (Number(e[k]) || 0), 0);
+    pdf.autoTable({
+      ...base, startY: y,
+      head: [["Associazione", "Quota", "Incassato lordo", "Prelievi in natura", "Da girare alle attività", "Costi pagati", "Disponibile", "Fondo cassa anticipato", "Spettante", "Conguaglio", "Voci proprie"]],
+      body: R.enti.map(e => [e.ente.nome, pct(e.ente.quota), num(e.incassi), num(e.prelievi), num(e.daGirare), num(e.costi),
+        num(e.disponibile), num(e.fondi), num(e.spettante), num(e.conguaglio), e.propri ? num(e.propri) : "—"]),
+      foot: [["Totale", pct(R.quotaTot), num(tot("incassi")), num(tot("prelievi")), num(tot("daGirare")), num(tot("costi")),
+        num(tot("disponibile")), num(tot("fondi")), num(tot("spettante")), num(sommaCong), num(tot("propri"))]],
+      columnStyles: { 0: { cellWidth: 38, fontStyle: "bold" }, 1: { halign: "right", cellWidth: 16 }, ...Object.fromEntries([2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => [i, { halign: "right" }])) },
+      didParseCell: (d) => {
+        if (d.section !== "head" && d.column.index > 0) d.cell.styles.halign = "right";
+        if (d.section === "body" && d.column.index === 9) {
+          const v = R.enti[d.row.index].conguaglio;
+          d.cell.styles.fontStyle = "bold";
+          d.cell.styles.textColor = Math.abs(v) < 0.005 ? INK : (v > 0 ? VERDE : ROSSO);
+        }
+      }
+    });
+    dopo();
+
+    /* --- 2. Chi versa a chi (pareggio dei conguagli) --- */
+    const deb = R.enti.filter(e => e.conguaglio < -0.005).map(e => ({ n: e.ente.nome, v: -e.conguaglio })).sort((a, b) => b.v - a.v);
+    const cre = R.enti.filter(e => e.conguaglio > 0.005).map(e => ({ n: e.ente.nome, v: e.conguaglio })).sort((a, b) => b.v - a.v);
+    const giri = [];
+    let i = 0, j = 0;
+    while (i < deb.length && j < cre.length) {
+      const imp = Math.min(deb[i].v, cre[j].v);
+      if (imp >= 0.01) giri.push([deb[i].n, cre[j].n, num(imp)]);
+      deb[i].v -= imp; cre[j].v -= imp;
+      if (deb[i].v < 0.005) i++;
+      if (cre[j].v < 0.005) j++;
+    }
+    if (giri.length) {
+      titoloSezione("Versamenti per chiudere i conti", "Proposta con il minor numero di bonifici; i fondi cassa anticipati sono già compresi");
+      pdf.autoTable({
+        ...base, startY: y, tableWidth: 150,
+        head: [["Chi versa", "A chi", "Importo"]],
+        body: giri,
+        columnStyles: { 2: { halign: "right", fontStyle: "bold" } },
+        didParseCell: (d) => { if (d.section === "head" && d.column.index === 2) d.cell.styles.halign = "right"; }
       });
-      y += 4;
-    };
+      dopo();
+    }
 
-    titolo("Festival Fabbrico — Costi, ricavi e ripartizione",
-      "Stampato il " + new Date().toLocaleString("it-IT") + " · importi consuntivi dove presenti, altrimenti preventivi");
+    /* --- 3. Riepilogo --- */
+    titoloSezione("Riepilogo");
+    pdf.autoTable({
+      ...base, startY: y, tableWidth: 150,
+      head: [["Voce", "Importo"]],
+      body: [
+        ["Ricavi lordi incassati", num(R.ricaviLordi)],
+        ["  di cui da girare alle attività", num(R.girate)],
+        ["Ricavi netti delle associazioni", num(R.ricaviNetti)],
+        ["  di cui merce tenuta dalle associazioni (prelievi)", num(R.prelievi)],
+        ["Costi", num(R.costi)],
+        ["Risultato da ripartire", num(R.risultato)],
+        ["Fondi cassa anticipati, da restituire", num(R.fondi)],
+        ["Fondi cassa già restituiti", num(R.fondiRestituiti)],
+        ["Voci non ripartite (di singole associazioni)", num(R.propri)],
+        ["Voci senza associazione", String(R.senzaEnte)],
+        ["Voci ancora da consuntivare", String(R.daConsuntivare)]
+      ],
+      columnStyles: { 1: { halign: "right" } },
+      didParseCell: (d) => {
+        if (d.section === "head" && d.column.index === 1) d.cell.styles.halign = "right";
+        if (d.section === "body" && d.row.index === 5) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = [240, 235, 225]; }
+        if (d.section === "body" && d.column.index === 0 && String(d.cell.raw).startsWith("  ")) d.cell.styles.textColor = GRIGIO;
+      }
+    });
+    dopo();
 
-    sezione("Riepilogo");
-    tabella(righeRiepilogo().slice(3).filter(r => r[0]), [120, 45], 1);
+    /* --- 4. Controparti --- */
+    const cp = righeControparti().slice(1);
+    if (cp.length) {
+      titoloSezione("Controparti", "Importi verso fornitori, attività e altri soggetti");
+      pdf.autoTable({
+        ...base, startY: y,
+        head: [["Controparte", "Tipo", "Incassato lordo", "% alle associazioni", "Da girare a loro", "Costi verso di loro", "Totale verso di loro"]],
+        body: cp.map(r => [r[0], r[1], num(r[2]), r[3] === "" ? "—" : pct(r[3]), num(r[4]), num(r[5]), num(r[6])]),
+        foot: [["Totale", "", num(cp.reduce((t, r) => t + r[2], 0)), "", num(cp.reduce((t, r) => t + r[4], 0)), num(cp.reduce((t, r) => t + r[5], 0)), num(cp.reduce((t, r) => t + r[6], 0))]],
+        columnStyles: { 0: { cellWidth: 60, fontStyle: "bold" }, 1: { cellWidth: 32 } },
+        didParseCell: (d) => { if (d.column.index >= 2) d.cell.styles.halign = "right"; }
+      });
+      dopo();
+    }
 
-    sezione("Ripartizione fra le associazioni");
-    tabella(righeEnti(), [40, 26, 24, 28, 24, 26, 28, 14, 24, 26, 24], 1);
-    pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(110);
-    spazio(8);
-    pdf.text("Conguaglio positivo = l'associazione deve ricevere; negativo = deve versare.", M, y); y += 7;
+    /* --- 5. Dettaglio voci --- */
+    const det = righeDettaglio().slice(1);
+    titoloSezione("Dettaglio voci", det.length + (det.length === 1 ? " voce" : " voci"));
+    pdf.autoTable({
+      ...base, startY: y,
+      styles: { ...base.styles, fontSize: 7.8 },
+      head: [["Tipo", "Voce", "Associazione", "Controparte", "Preventivo", "Consuntivo", "Importo usato", "% assoc.", "Netto assoc.", "Da girare", "Rip.", "Note"]],
+      body: det.map(r => [r[0], r[1], r[2], r[3], num(r[4]), r[5] === "" ? "da fare" : num(r[5]), num(r[6]),
+        r[0].startsWith("Ricavo") ? pct(r[7]) : "", num(r[8]), r[9] ? num(r[9]) : "", r[10], [r[11], r[12]].filter(Boolean).join(" · ")]),
+      columnStyles: {
+        0: { cellWidth: 20 }, 1: { cellWidth: 44, fontStyle: "bold" }, 2: { cellWidth: 26 }, 3: { cellWidth: 28 },
+        4: { cellWidth: 21 }, 5: { cellWidth: 21 }, 6: { cellWidth: 21 }, 7: { cellWidth: 14 }, 8: { cellWidth: 21 }, 9: { cellWidth: 19 }, 10: { cellWidth: 9, halign: "center" }
+      },
+      didParseCell: (d) => {
+        if ([4, 5, 6, 7, 8, 9].includes(d.column.index)) d.cell.styles.halign = "right";
+        if (d.section === "body" && d.column.index === 5 && d.cell.raw === "da fare") { d.cell.styles.textColor = ACC; d.cell.styles.fontStyle = "italic"; }
+        if (d.section === "body" && d.column.index === 10 && d.cell.raw === "no") d.cell.styles.textColor = ROSSO;
+      }
+    });
 
-    sezione("Controparti");
-    tabella(righeControparti(), [55, 32, 30, 28, 30, 32, 32], 2);
-
-    sezione("Dettaglio voci");
-    tabella(righeDettaglio().map(r => [r[0], r[1], r[2], r[3], r[6], r[8], r[9]]),
-      [20, 62, 40, 46, 28, 30, 28], 4);
-
+    /* --- piè di pagina --- */
     const n = pdf.internal.getNumberOfPages();
-    for (let i = 1; i <= n; i++) {
-      pdf.setPage(i); pdf.setFont("helvetica", "normal"); pdf.setFontSize(7.5); pdf.setTextColor(150);
-      pdf.text("Festival Fabbrico — costi e ricavi", M, PH - 6);
-      pdf.text("Pagina " + i + " di " + n, PW - M, PH - 6, { align: "right" });
+    for (let p = 1; p <= n; p++) {
+      pdf.setPage(p);
+      pdf.setDrawColor(225, 218, 205); pdf.setLineWidth(0.2); pdf.line(M, PH - 9, PW - M, PH - 9);
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(7.5); pdf.setTextColor(150);
+      pdf.text("Festival Fabbrico — costi, ricavi e ripartizione · " + stampato, M, PH - 5.5);
+      pdf.text("Pagina " + p + " di " + n, PW - M, PH - 5.5, { align: "right" });
     }
     pdf.save("costi-ricavi-festival.pdf");
     log("ha esportato il PDF di costi, ricavi e ripartizione");
@@ -3448,8 +3619,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
                         <div className="fin-sub">
                           {v.data ? v.data + " · " : ""}
                           {v.tipo === "ricavo" && q < 100 ? "alle associazioni " + q + "%" : ""}
-                          {v.tipo === "fondo" ? statoFondoLabel(v, nomeEnte) : ""}
-                          {v.tipo === "ricavo" && v.incluso ? " · già compreso in un altro incasso" : ""}
+                          {v.tipo === "fondo" ? (v.restituito ? "già restituito" : "da restituire" + (v.presso && v.presso !== v.ente ? " · in cassa a " + nomeEnte(v.presso) : "")) : ""}
                           {v.ripartita === false && v.tipo !== "fondo" ? "non ripartita" : ""}
                         </div>
                       </td>
@@ -3481,7 +3651,6 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
                 <tr><td data-label="Voce">Costi</td><td className="num imp neg" data-label="Importo">− {euro(R.costi)}</td></tr>
                 <tr><td data-label="Voce"><b>Risultato da ripartire</b></td><td className={"num imp " + (R.risultato >= 0 ? "pos" : "neg")} data-label="Importo"><b>{euro(R.risultato)}</b></td></tr>
                 {R.fondi > 0 && <tr><td data-label="Voce">Fondi cassa anticipati, da restituire (fuori dal risultato)</td><td className="num" data-label="Importo">{euro(R.fondi)}</td></tr>}
-                {R.fondiInclusi > 0 && <tr><td data-label="Voce">Di cui già dentro gli incassi contati e quindi tolti dai ricavi</td><td className="num" data-label="Importo">− {euro(R.fondiInclusi)}</td></tr>}
               </tbody>
             </table>
           </div>
@@ -3631,12 +3800,13 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
 /* ---------- Modale voce costo/ricavo ---------- */
 function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
   const [f, setF] = useState(() => ({
-    tipo: "costo", voce: "", ente: "", presso: "", statoFondo: "incluso", incluso: false, soggetto: "", preventivo: 0, consuntivo: "", quotaAssoc: 100, ripartita: true, restituito: false, data: "", note: "",
+    tipo: "costo", voce: "", ente: "", presso: "", soggetto: "", preventivo: 0, consuntivo: "", quotaAssoc: 100, ripartita: true, restituito: false, data: "", note: "",
     ...dati,
     quotaAssoc: (dati && dati.quotaAssoc != null) ? dati.quotaAssoc : 100,
     consuntivo: (dati && dati.consuntivo != null) ? dati.consuntivo : ""
   }));
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const [errore, setErrore] = useState("");
+  const set = (k, v) => { setErrore(""); setF(p => ({ ...p, [k]: v })); };
   const scegliSoggetto = (id) => {
     const s = soggetti.find(x => x.id === id);
     setF(p => ({ ...p, soggetto: id, quotaAssoc: (s && s.tipo === "attivita" && s.retro !== undefined && s.retro !== "") ? s.retro : p.quotaAssoc }));
@@ -3669,19 +3839,15 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
             <p className="hint" style={{ margin: "0 0 8px" }}>
               Soldi anticipati per far partire le casse. Non sono né costo né ricavo: tornano a chi li ha messi prima di dividere il resto.
             </p>
-            <div className="field"><label>Dove sono adesso quei soldi</label>
-              <select value={f.statoFondo || (f.restituito ? "restituito" : "incluso")} onChange={e => set("statoFondo", e.target.value)}>
-                <option value="incluso">Già compresi in un incasso registrato</option>
-                <option value="presso">Ancora in cassa, in mano a…</option>
-                <option value="restituito">Già restituiti</option>
+            <div className="field"><label>Adesso quei soldi sono in mano a</label>
+              <select value={f.presso || f.ente || ""} onChange={e => set("presso", e.target.value)}>
+                <option value="">— chi li ha messi —</option>
+                {enti.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
               </select></div>
-            {(f.statoFondo || "incluso") === "presso" && (
-              <div className="field"><label>In mano a</label>
-                <select value={f.presso || f.ente || ""} onChange={e => set("presso", e.target.value)}>
-                  <option value="">— chi li ha messi —</option>
-                  {enti.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                </select></div>
-            )}
+            <label className="check" style={{ margin: "0 0 10px" }}>
+              <input type="checkbox" checked={!!f.restituito} onChange={e => set("restituito", e.target.checked)} />
+              Già restituito
+            </label>
           </div>
         )}
         {f.tipo !== "fondo" && <div className="field"><label>Controparte</label>
@@ -3690,7 +3856,8 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
             {soggetti.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
           </select></div>}
         <div className="field"><label>Voce</label>
-          <input autoFocus value={f.voce} onChange={e => set("voce", e.target.value)} placeholder="Es. Carne, Service audio, Incasso bar…" /></div>
+          <input autoFocus value={f.voce || ""} onChange={e => set("voce", e.target.value)}
+            placeholder={f.tipo === "fondo" ? "Fondo cassa (se lasci vuoto)" : "Es. Carne, Service audio, Incasso bar…"} /></div>
         <div className="row">
           <div className="field"><label>{f.tipo === "fondo" || f.tipo === "prelievo" ? "Previsto (€)" : "Preventivo (€)"}</label>
             <input type="number" step="0.01" min="0" value={f.preventivo} onChange={e => set("preventivo", e.target.value)} /></div>
@@ -3702,15 +3869,7 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
         {f.tipo === "ricavo" && (
           <div className="field"><label>% dell'incasso che resta alle associazioni</label>
             <input type="number" step="0.5" min="0" max="100" value={f.quotaAssoc} onChange={e => set("quotaAssoc", e.target.value)} />
-            <label className="check" style={{ margin: "8px 0 4px" }}>
-              <input type="checkbox" checked={!!f.incluso} onChange={e => set("incluso", e.target.checked)} />
-              Questo incasso è già compreso in un'altra voce (es. nel totale contato in cassa)
-            </label>
-            <p className="hint">
-              {f.incluso
-                ? "Su " + euro(imp) + " di incasso, alle associazioni restano " + euro(imp * q / 100) + ": il lordo non viene ricontato, si registrano solo i " + euro(imp - imp * q / 100) + " da girare alla controparte."
-                : "Su " + euro(imp) + " restano " + euro(imp * q / 100) + " alle associazioni e " + euro(imp - imp * q / 100) + " vanno girati alla controparte. Per gli incassi normali lascia 100."}
-            </p>
+            <p className="hint">Su {euro(imp)} restano {euro(imp * q / 100)} alle associazioni e {euro(imp - imp * q / 100)} vanno girati alla controparte. Per gli incassi normali lascia 100.</p>
           </div>
         )}
         {f.tipo !== "fondo" && (
@@ -3723,22 +3882,23 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
           <textarea value={f.note} onChange={e => set("note", e.target.value)} /></div>
         <div className="row" style={{ marginTop: 12 }}>
           <button className="btn" onClick={() => {
-            if (!f.voce.trim()) return;
+            const nome = String(f.voce || "").trim() || (f.tipo === "fondo" ? "Fondo cassa" : "");
+            if (!nome) { setErrore("Scrivi il nome della voce prima di salvare."); return; }
+            if (f.tipo === "fondo" && !f.ente) { setErrore("Scegli chi ha messo il fondo cassa."); return; }
             onSalva({
-              ...f, voce: f.voce.trim(),
+              ...f, voce: nome,
               preventivo: parseFloat(f.preventivo) || 0,
               consuntivo: (f.consuntivo === "" || f.consuntivo === null || f.consuntivo === undefined) ? null : (parseFloat(f.consuntivo) || 0),
               quotaAssoc: f.tipo === "ricavo" ? q : 100,
               ripartita: f.ripartita !== false,
-              statoFondo: f.tipo === "fondo" ? (f.statoFondo || "incluso") : "",
-              restituito: f.tipo === "fondo" && (f.statoFondo || "incluso") === "restituito",
+              restituito: f.tipo === "fondo" ? !!f.restituito : false,
               presso: f.tipo === "fondo" ? (f.presso || f.ente || "") : "",
-              incluso: f.tipo === "ricavo" ? !!f.incluso : false,
               creata: f.creata || Date.now()
             });
           }}>Salva</button>
           <button className="btn ghost" onClick={onChiudi}>Annulla</button>
         </div>
+        {errore && <p className="hint" style={{ color: "var(--rosso)", marginTop: 8 }}>{errore}</p>}
         {f.id && <button className="btn danger block sm" style={{ marginTop: 8 }}
           onClick={() => { if (confirm("Eliminare la voce \"" + f.voce + "\"?")) onElimina(f.id); }}>Elimina voce</button>}
       </div>
