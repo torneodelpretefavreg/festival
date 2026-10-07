@@ -183,7 +183,7 @@
   .fin-cat{font-weight:600}
   .fin-sub{color:var(--muted);font-size:11px;margin-top:2px}
   .segcaps{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
-  .segcaps button{padding:7px 13px;border-radius:99px;border:1px solid var(--line);font-size:12px;color:var(--muted);font-weight:600}
+  .segcaps button:not(.btn){padding:7px 13px;border-radius:99px;border:1px solid var(--line);font-size:12px;color:var(--muted);font-weight:600}
   .segcaps button.on{border-color:var(--amber);color:var(--amber);background:var(--amber-soft)}
 
   /* ---------- Piantina ---------- */
@@ -663,18 +663,43 @@ function calcolaRipartizione(voci, enti) {
 
   const risultato = ricaviNetti - costi;
   const quotaTot = +enti.reduce((t, e) => t + (Number(e.quota) || 0), 0).toFixed(2);
+  const c2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const lista = enti.map(e => {
     const x = perEnte[e.id];
     /* disponibile: solo quello che riguarda la cassa comune (tolte le voci proprie) */
-    x.disponibile = x.incassi + x.prelievi + x.fondoInCassa - x.daGirare - x.costi - x.propri;
-    x.spettante = risultato * (Number(e.quota) || 0) / 100;
-    x.conguaglio = x.spettante + x.fondi - x.disponibile;
+    x.disponibile = c2(x.incassi + x.prelievi + x.fondoInCassa - x.daGirare - x.costi - x.propri);
+    x.spettante = c2(risultato * (Number(e.quota) || 0) / 100);
     return x;
   });
+  /* arrotondamento al centesimo: l'eventuale centesimo che avanza va all'associazione con la quota più alta,
+     così spettanti e conguagli tornano esatti e i versamenti coincidono con quanto mostrato */
+  if (lista.length) {
+    const scarto = c2(c2(risultato * quotaTot / 100) - lista.reduce((t, x) => t + x.spettante, 0));
+    if (scarto) {
+      const top = lista.reduce((m, x) => ((Number(x.ente.quota) || 0) > (Number(m.ente.quota) || 0) ? x : m), lista[0]);
+      top.spettante = c2(top.spettante + scarto);
+    }
+  }
+  lista.forEach(x => { x.conguaglio = c2(x.spettante + x.fondi - x.disponibile); });
   const controparti = Object.keys(perCp).map(k => perCp[k])
     .sort((a, b) => (b.incassato + b.costi) - (a.incassato + a.costi));
 
   return { enti: lista, controparti, ricaviLordi, ricaviNetti, girate, costi, risultato, prelievi, fondi, fondiRestituiti, propri, senzaEnte, daConsuntivare, quotaTot };
+}
+/* chi versa a chi per pareggiare i conguagli: il minor numero di bonifici */
+function calcolaVersamenti(listaEnti) {
+  const deb = listaEnti.filter(e => e.conguaglio < -0.005).map(e => ({ n: e.ente.nome, v: -e.conguaglio })).sort((a, b) => b.v - a.v);
+  const cre = listaEnti.filter(e => e.conguaglio > 0.005).map(e => ({ n: e.ente.nome, v: e.conguaglio })).sort((a, b) => b.v - a.v);
+  const giri = [];
+  let i = 0, j = 0;
+  while (i < deb.length && j < cre.length) {
+    const imp = Math.min(deb[i].v, cre[j].v);
+    if (imp >= 0.01) giri.push({ da: deb[i].n, a: cre[j].n, importo: Math.round(imp * 100) / 100 });
+    deb[i].v -= imp; cre[j].v -= imp;
+    if (deb[i].v < 0.005) i++;
+    if (cre[j].v < 0.005) j++;
+  }
+  return giri;
 }
 const TIPI_VOCE = [
   { id: "costo", label: "Costo" },
@@ -744,6 +769,7 @@ function useDati() {
   const [sfondoMappa, setSfondoMappa] = useState("");
   const [manodopera, setManodopera] = useState({ aree: [] });
   const [finanze, setFinanze] = useState({ voci: [], soggetti: [], enti: null });
+  const [finanzePronte, setFinanzePronte] = useState(false);
   const [permessi, setPermessi] = useState(PERMESSI_DEFAULT);
   const [pronto, setPronto] = useState(false);
 
@@ -777,10 +803,13 @@ function useDati() {
         const v = d.data();
         setManodopera({ aree: (v && v.aree) || [] });
       });
-      const u8 = db.collection("impostazioni").doc("finanze").onSnapshot(d => {
+      /* finanze: si considerano caricate solo quando arrivano dal server (o dalla cache se il documento c'è),
+         così nessun salvataggio parte da uno stato vuoto e cancella le voci già inserite */
+      const u8 = db.collection("impostazioni").doc("finanze").onSnapshot({ includeMetadataChanges: true }, d => {
         const v = d.data();
         setFinanze({ voci: (v && v.voci) || [], soggetti: (v && v.soggetti) || [], enti: (v && v.enti) || null });
-      });
+        if (d.exists || !d.metadata.fromCache) setFinanzePronte(true);
+      }, e => console.error(e));
       const u9 = db.collection("impostazioni").doc("permessi").onSnapshot(d => {
         const v = d.data();
         if (v && v.sezioni) setPermessi(v.sezioni);
@@ -798,6 +827,7 @@ function useDati() {
     setSfondoMappa(l.sfondoMappa || "");
     setManodopera(l.manodopera || { aree: [] });
     setFinanze(l.finanze || { voci: [], soggetti: [], enti: null });
+    setFinanzePronte(true);
     setPermessi(l.permessi || PERMESSI_DEFAULT);
     setPronto(true);
   }, []);
@@ -883,6 +913,7 @@ function useDati() {
   }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa]);
 
   const salvaFinanze = useCallback((next) => {
+    if (!finanzePronte) { alert("Costi & Ricavi non ancora caricati dal server: riprova fra qualche secondo."); return; }
     setFinanze(next);
     if (db) {
       const pulito = JSON.parse(JSON.stringify(next)); /* Firestore rifiuta i valori undefined */
@@ -890,7 +921,7 @@ function useDati() {
         .catch(e => { console.error(e); alert("Salvataggio non riuscito: " + (e && e.message ? e.message : e)); });
     }
     salvaLocale({ finanze: next });
-  }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera]);
+  }, [prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, manodopera, finanzePronte]);
 
   const salvaPermessi = useCallback((sezioni) => {
     setPermessi(sezioni);
@@ -904,7 +935,7 @@ function useDati() {
     setAttivita(prev => { const next = [voce, ...prev].slice(0, 200); salvaLocale({ attivita: next }); return next; });
   }, [prenotazioni, tavoli, sfondo, utenti, attivita]);
 
-  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, salvaPrenTante, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, salvaManodopera, manodopera, finanze, salvaFinanze, permessi, salvaPermessi, log, cloud: !!db };
+  return { prenotazioni, tavoli, sfondo, utenti, attivita, mappa, sfondoMappa, pronto, salvaPren, salvaPrenTante, eliminaPren, salvaPiantina, salvaUtenti, salvaMappa, salvaSfondoMappa, salvaManodopera, manodopera, finanze, finanzePronte, salvaFinanze, permessi, salvaPermessi, log, cloud: !!db };
 }
 
 /* =========================================================
@@ -2172,7 +2203,7 @@ function App() {
 
       {/* ---------- COSTI & RICAVI ---------- */}
       {vistaOk === "finanze" && (
-        <FinanzeView finanze={D.finanze} onSalva={D.salvaFinanze} log={D.log} mostra={mostra} />
+        <FinanzeView finanze={D.finanze} pronte={D.finanzePronte} onSalva={D.salvaFinanze} log={D.log} mostra={mostra} />
       )}
 
       {/* ---------- MAPPA AREA ---------- */}
@@ -3204,10 +3235,12 @@ function ManodoperaView({ aree, isAdmin, onSalva, log, mostra }) {
 /* =========================================================
    COSTI & RICAVI (budget, consuntivo, ripartizione) + Anagrafica
    ========================================================= */
-function FinanzeView({ finanze, onSalva, log, mostra }) {
+function FinanzeView({ finanze, pronte, onSalva: salvaDoc, log, mostra }) {
   const voci = finanze.voci || [];
   const soggetti = finanze.soggetti || [];
-  const enti = (finanze.enti && finanze.enti.length) ? finanze.enti : [];
+  /* finché non sono state salvate, si usano le tre associazioni di partenza (senza scriverle subito nel database) */
+  const enti = finanze.enti ? finanze.enti : ENTI_DEFAULT;
+  const onSalva = (next) => salvaDoc({ ...next, enti: next.enti || enti });
   const [sotto, setSotto] = useState("voci");
   const [filtro, setFiltro] = useState("tutte");
   const [filtroEnte, setFiltroEnte] = useState("");
@@ -3215,10 +3248,6 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
   const [nuovoSoggetto, setNuovoSoggetto] = useState({ nome: "", tipo: "fornitore", contatto: "", retro: 100 });
   const [nuovoEnte, setNuovoEnte] = useState("");
 
-  /* al primo ingresso crea le tre associazioni, poi si possono cambiare */
-  useEffect(() => {
-    if (!finanze.enti) onSalva({ ...finanze, enti: ENTI_DEFAULT });
-  }, [finanze.enti]);
 
   const nomeSoggetto = (id) => { const s = soggetti.find(x => x.id === id); return s ? s.nome : "—"; };
   const nomeEnte = (id) => { const e = enti.find(x => x.id === id); return e ? e.nome : "—"; };
@@ -3281,7 +3310,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
     const n = nuovoEnte.trim(); if (!n) return;
     if (enti.some(e => e.nome.toLowerCase() === n.toLowerCase())) return mostra(n + " c'è già");
     const quota = +(100 / (enti.length + 1)).toFixed(2);
-    const next = enti.map(e => ({ ...e, quota })).concat([{ id: uid(), nome: n, quota }]);
+    const next = enti.map((e, i) => ({ ...e, quota: i === 0 ? +(100 - quota * enti.length).toFixed(2) : quota })).concat([{ id: uid(), nome: n, quota }]);
     onSalva({ ...finanze, enti: next });
     log("ha aggiunto l'associazione " + n);
     setNuovoEnte(""); mostra("Associazione aggiunta");
@@ -3469,17 +3498,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
     dopo();
 
     /* --- 2. Chi versa a chi (pareggio dei conguagli) --- */
-    const deb = R.enti.filter(e => e.conguaglio < -0.005).map(e => ({ n: e.ente.nome, v: -e.conguaglio })).sort((a, b) => b.v - a.v);
-    const cre = R.enti.filter(e => e.conguaglio > 0.005).map(e => ({ n: e.ente.nome, v: e.conguaglio })).sort((a, b) => b.v - a.v);
-    const giri = [];
-    let i = 0, j = 0;
-    while (i < deb.length && j < cre.length) {
-      const imp = Math.min(deb[i].v, cre[j].v);
-      if (imp >= 0.01) giri.push([deb[i].n, cre[j].n, num(imp)]);
-      deb[i].v -= imp; cre[j].v -= imp;
-      if (deb[i].v < 0.005) i++;
-      if (cre[j].v < 0.005) j++;
-    }
+    const giri = calcolaVersamenti(R.enti).map(g => [g.da, g.a, num(g.importo)]);
     if (giri.length) {
       titoloSezione("Versamenti per chiudere i conti", "Proposta con il minor numero di bonifici; i fondi cassa anticipati sono già compresi");
       pdf.autoTable({
@@ -3567,6 +3586,10 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
     log("ha esportato il PDF di costi, ricavi e ripartizione");
     mostra("PDF esportato");
   };
+
+  const versamenti = useMemo(() => calcolaVersamenti(R.enti), [R]);
+
+  if (!pronte) return <div style={{ padding: 40 }} className="hint">Carico costi e ricavi…</div>;
 
   return (
     <div style={{ marginTop: 16 }}>
@@ -3657,7 +3680,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
 
           <div className="panel">
             <h2>Chi ha in mano cosa</h2>
-            <p className="hint">Disponibile = incassato + prelievi in natura − quanto deve girare alle attività − costi pagati.
+            <p className="hint">Disponibile = incassato + prelievi in natura + fondo cassa che tiene − quanto deve girare alle attività − costi pagati (escluse le voci non ripartite).
               Conguaglio = spettante + fondo cassa da restituire − disponibile: positivo si riceve, negativo si versa. La somma dei conguagli fa sempre zero.</p>
             <table className="tab-cards">
               <thead><tr><th>Associazione</th><th>Incassato</th><th>Prelievi</th><th>Da girare</th><th>Costi</th><th>Disponibile</th><th>Fondo cassa</th><th>Spettante</th><th>Conguaglio</th></tr></thead>
@@ -3684,6 +3707,27 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
           </div>
 
           <div className="panel">
+            <h2>Chi versa a chi</h2>
+            <p className="hint">Proposta con il minor numero di bonifici per chiudere i conti; i fondi cassa anticipati sono già compresi.</p>
+            {versamenti.length > 0 ? (
+              <table className="tab-cards">
+                <thead><tr><th>Chi versa</th><th>A chi</th><th>Importo</th></tr></thead>
+                <tbody>
+                  {versamenti.map((g, i) => (
+                    <tr key={i}>
+                      <td data-label="Chi versa"><b>{g.da}</b></td>
+                      <td data-label="A chi"><b>{g.a}</b></td>
+                      <td className="num imp" data-label="Importo"><b>{euro(g.importo)}</b></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <p className="hint">Nessun versamento da fare: i conti sono già pari.</p>}
+            {R.senzaEnte > 0 && <p className="hint" style={{ color: "var(--rosso)", marginTop: 8 }}>
+              {R.senzaEnte === 1 ? "1 voce non è intestata" : R.senzaEnte + " voci non sono intestate"} a nessuna associazione: entrano nel risultato ma non nella cassa di nessuno, quindi i versamenti non quadrano finché non le assegni.</p>}
+          </div>
+
+          <div className="panel">
             <h2>Controparti</h2>
             <table className="tab-cards">
               <thead><tr><th>Controparte</th><th>Incassato lordo</th><th>Da girare a loro</th><th>Costi verso di loro</th><th>Saldo</th></tr></thead>
@@ -3694,7 +3738,7 @@ function FinanzeView({ finanze, onSalva, log, mostra }) {
                     <td className="num" data-label="Incassato">{euro(c.incassato)}</td>
                     <td className="num" data-label="Da girare">{euro(c.daGirare)}</td>
                     <td className="num" data-label="Costi">{euro(c.costi)}</td>
-                    <td className="num imp neg" data-label="Saldo">{euro(c.daGirare + c.costi)}</td>
+                    <td className={"num imp " + (c.id ? "neg" : "muted")} data-label="Saldo">{c.id ? euro(c.daGirare + c.costi) : "—"}</td>
                   </tr>
                 ))}
                 {R.controparti.length === 0 && <tr><td colSpan="5" className="hint">Ancora nessun movimento.</td></tr>}
