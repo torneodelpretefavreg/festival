@@ -618,15 +618,20 @@ const quotaAssoc = (v) => {
   return isNaN(q) ? 100 : Math.min(100, Math.max(0, q));
 };
 
+/* "compreso negli incassi": i soldi sono già dentro le casse/POS registrati,
+   quindi non vanno sommati una seconda volta (fondo cassa, vendite delle attività passate dalle casse) */
+const fondoNegliIncassi = (v) => v.tipo === "fondo" && (v.statoFondo === "incluso" || v.incluso === true);
+const fondoRestituito = (v) => v.tipo === "fondo" && (v.restituito === true || v.statoFondo === "restituito");
+const ricavoNegliIncassi = (v) => v.tipo === "ricavo" && v.incluso === true;
+
 function calcolaRipartizione(voci, enti) {
   const perEnte = {};
-  enti.forEach(e => { perEnte[e.id] = { ente: e, incassi: 0, daGirare: 0, costi: 0, prelievi: 0, fondi: 0, fondoInCassa: 0, propri: 0, disponibile: 0, spettante: 0, conguaglio: 0 }; });
+  enti.forEach(e => { perEnte[e.id] = { ente: e, incassi: 0, daGirare: 0, costi: 0, prelievi: 0, fondi: 0, fondoInCassa: 0, fondoNegliIncassi: 0, propri: 0, disponibile: 0, spettante: 0, conguaglio: 0 }; });
   const perCp = {};
-  let ricaviLordi = 0, ricaviNetti = 0, girate = 0, costi = 0, prelievi = 0, fondi = 0, fondiRestituiti = 0, propri = 0, senzaEnte = 0, daConsuntivare = 0;
+  let ricaviLordi = 0, ricaviNetti = 0, girate = 0, costi = 0, prelievi = 0, fondi = 0, fondiRestituiti = 0, fondoIncassi = 0, propri = 0, senzaEnte = 0, daConsuntivare = 0;
 
   voci.forEach(v => {
     const imp = importoVoce(v), q = quotaAssoc(v);
-    const ripartita = v.ripartita !== false;
     const e = perEnte[v.ente];
     if (!v.ente || !e) senzaEnte++;
     if (v.consuntivo === null || v.consuntivo === undefined) daConsuntivare++;
@@ -634,39 +639,53 @@ function calcolaRipartizione(voci, enti) {
     if (!perCp[cp]) perCp[cp] = { id: cp, incassato: 0, daGirare: 0, costi: 0 };
     if (v.tipo === "fondo") {
       /* fondo cassa anticipato da un'associazione: non è né costo né ricavo, va solo restituito */
-      if (v.restituito) fondiRestituiti += imp;
-      else {
-        fondi += imp;
-        if (e) e.fondi += imp;
-        const p = perEnte[v.presso || v.ente];
-        if (p) p.fondoInCassa += imp;
-      }
+      if (fondoRestituito(v)) { fondiRestituiti += imp; return; }
+      fondi += imp;
+      if (e) e.fondi += imp;
+      const p = perEnte[v.presso || v.ente];
+      if (fondoNegliIncassi(v)) {
+        /* il fondo è già contato dentro gli incassi delle casse: lo si toglie dal ricavo, il contante resta a chi lo tiene */
+        fondoIncassi += imp;
+        if (p) p.fondoNegliIncassi += imp;
+      } else if (p) p.fondoInCassa += imp;
       return;
     }
+    const incl = ricavoNegliIncassi(v);
+    const ripartita = incl || v.ripartita !== false;
     if (v.tipo === "prelievo") {
       /* merce tenuta da un'associazione: vale come un incasso suo, così paga agli altri la loro parte */
       if (e) { e.prelievi += imp; if (!ripartita) e.propri += imp; }
-      if (ripartita) { ricaviLordi += imp; ricaviNetti += imp; prelievi += imp; } else propri += imp;
+      if (ripartita) { ricaviNetti += imp; prelievi += imp; } else propri += imp;
       return;
     }
     if (v.tipo === "ricavo") {
       const netto = imp * q / 100, gira = imp - netto;
       perCp[cp].incassato += imp; perCp[cp].daGirare += gira;
-      if (e) { e.incassi += imp; e.daGirare += gira; if (!ripartita) e.propri += netto; }
-      if (ripartita) { ricaviLordi += imp; ricaviNetti += netto; girate += gira; } else propri += netto;
+      if (e) {
+        if (!incl) e.incassi += imp;           /* se è già nelle casse, l'incasso è già contato lì */
+        e.daGirare += gira;
+        if (!ripartita) e.propri += netto;
+      }
+      if (ripartita) {
+        if (!incl) { ricaviLordi += imp; ricaviNetti += netto; }
+        else ricaviNetti -= gira;              /* dal lordo delle casse si toglie solo la quota dell'attività */
+        girate += gira;
+      } else propri += netto;
     } else {
       perCp[cp].costi += imp;
-      if (e) { e.costi += imp; if (!ripartita) e.propri -= imp; }
-      if (ripartita) costi += imp; else propri -= imp;
+      if (e) { e.costi += imp; if (v.ripartita === false) e.propri -= imp; }
+      if (v.ripartita !== false) costi += imp; else propri -= imp;
     }
   });
 
+  ricaviNetti -= fondoIncassi;
+  const incassoAssoc = ricaviLordi - fondoIncassi - girate;
   const risultato = ricaviNetti - costi;
   const quotaTot = +enti.reduce((t, e) => t + (Number(e.quota) || 0), 0).toFixed(2);
   const c2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const lista = enti.map(e => {
     const x = perEnte[e.id];
-    /* disponibile: solo quello che riguarda la cassa comune (tolte le voci proprie) */
+    /* disponibile: quello che l'associazione ha in mano per la cassa comune (tolte le voci proprie) */
     x.disponibile = c2(x.incassi + x.prelievi + x.fondoInCassa - x.daGirare - x.costi - x.propri);
     x.spettante = c2(risultato * (Number(e.quota) || 0) / 100);
     return x;
@@ -683,8 +702,11 @@ function calcolaRipartizione(voci, enti) {
   lista.forEach(x => { x.conguaglio = c2(x.spettante + x.fondi - x.disponibile); });
   const controparti = Object.keys(perCp).map(k => perCp[k])
     .sort((a, b) => (b.incassato + b.costi) - (a.incassato + a.costi));
+  /* scorporo delle vendite delle attività commerciali: quanto va a loro e quanto resta alle associazioni */
+  const attivita = controparti.filter(c => c.daGirare > 0.004)
+    .map(c => ({ id: c.id, venduto: c.incassato, aLoro: c.daGirare, aNoi: c.incassato - c.daGirare }));
 
-  return { enti: lista, controparti, ricaviLordi, ricaviNetti, girate, costi, risultato, prelievi, fondi, fondiRestituiti, propri, senzaEnte, daConsuntivare, quotaTot };
+  return { enti: lista, controparti, attivita, ricaviLordi, ricaviNetti, incassoAssoc, girate, costi, risultato, prelievi, fondi, fondiRestituiti, fondoIncassi, propri, senzaEnte, daConsuntivare, quotaTot };
 }
 /* chi versa a chi per pareggiare i conguagli: il minor numero di bonifici */
 function calcolaVersamenti(listaEnti) {
@@ -3337,7 +3359,7 @@ function FinanzeView({ finanze, pronte, onSalva: salvaDoc, log, mostra }) {
     const r = voci.slice().sort((a, b) => String(a.tipo).localeCompare(String(b.tipo)) || String(a.voce).localeCompare(String(b.voce), "it")).map(v => {
       const imp = importoVoce(v), q = quotaAssoc(v);
       const netto = v.tipo === "ricavo" ? imp * q / 100 : imp;
-      const et = (TIPI_VOCE.find(t => t.id === (v.tipo || "costo")) || TIPI_VOCE[0]).label + (v.tipo === "fondo" && v.restituito ? " (restituito)" : "");
+      const et = (TIPI_VOCE.find(t => t.id === (v.tipo || "costo")) || TIPI_VOCE[0]).label + (fondoRestituito(v) ? " (restituito)" : "") + (fondoNegliIncassi(v) || ricavoNegliIncassi(v) ? " (già nelle casse)" : "");
       return [et, v.voce, nomeEnte(v.ente), nomeSoggetto(v.soggetto),
         Number(v.preventivo) || 0, (v.consuntivo === null || v.consuntivo === undefined) ? "" : Number(v.consuntivo) || 0,
         imp, v.tipo === "ricavo" ? q : 100, +netto.toFixed(2), v.tipo === "ricavo" ? +(imp - netto).toFixed(2) : 0,
@@ -3366,10 +3388,11 @@ function FinanzeView({ finanze, pronte, onSalva: salvaDoc, log, mostra }) {
     ["Riepilogo Festival Fabbrico", ""],
     ["Aggiornato al", new Date().toLocaleString("it-IT")],
     ["", ""],
-    ["Ricavi lordi incassati", +R.ricaviLordi.toFixed(2)],
-    ["Di cui da girare alle attività", +R.girate.toFixed(2)],
-    ["Ricavi netti delle associazioni", +R.ricaviNetti.toFixed(2)],
-    ["Di cui merce tenuta dalle associazioni (prelievi)", +R.prelievi.toFixed(2)],
+    ["Incasso lordo (casse e POS)", +R.ricaviLordi.toFixed(2)],
+    ["Fondo cassa compreso negli incassi", +R.fondoIncassi.toFixed(2)],
+    ["Quota delle attività commerciali", +R.girate.toFixed(2)],
+    ["Incasso delle associazioni", +R.incassoAssoc.toFixed(2)],
+    ["Merce tenuta dalle associazioni (prelievi)", +R.prelievi.toFixed(2)],
     ["Costi", +R.costi.toFixed(2)],
     ["Risultato da ripartire", +R.risultato.toFixed(2)],
     ["", ""],
@@ -3517,10 +3540,11 @@ function FinanzeView({ finanze, pronte, onSalva: salvaDoc, log, mostra }) {
       ...base, startY: y, tableWidth: 150,
       head: [["Voce", "Importo"]],
       body: [
-        ["Ricavi lordi incassati", num(R.ricaviLordi)],
-        ["  di cui da girare alle attività", num(R.girate)],
-        ["Ricavi netti delle associazioni", num(R.ricaviNetti)],
-        ["  di cui merce tenuta dalle associazioni (prelievi)", num(R.prelievi)],
+        ["Incasso lordo (casse e POS)", num(R.ricaviLordi)],
+        ["  meno fondo cassa compreso negli incassi", num(R.fondoIncassi)],
+        ["  meno quota delle attività commerciali", num(R.girate)],
+        ["Incasso delle associazioni", num(R.incassoAssoc)],
+        ["  più merce tenuta dalle associazioni (prelievi)", num(R.prelievi)],
         ["Costi", num(R.costi)],
         ["Risultato da ripartire", num(R.risultato)],
         ["Fondi cassa anticipati, da restituire", num(R.fondi)],
@@ -3532,11 +3556,24 @@ function FinanzeView({ finanze, pronte, onSalva: salvaDoc, log, mostra }) {
       columnStyles: { 1: { halign: "right" } },
       didParseCell: (d) => {
         if (d.section === "head" && d.column.index === 1) d.cell.styles.halign = "right";
-        if (d.section === "body" && d.row.index === 5) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = [240, 235, 225]; }
+        if (d.section === "body" && (d.row.index === 6 || d.row.index === 3)) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = [240, 235, 225]; }
         if (d.section === "body" && d.column.index === 0 && String(d.cell.raw).startsWith("  ")) d.cell.styles.textColor = GRIGIO;
       }
     });
     dopo();
+
+    /* --- 3-bis. Scorporo attività commerciali --- */
+    if (R.attivita.length) {
+      titoloSezione("Attività commerciali: scorporo", "Venduto, quota girata alle attività e quota che resta alle associazioni");
+      pdf.autoTable({
+        ...base, startY: y, tableWidth: 190,
+        head: [["Attività", "Venduto", "Alle attività", "Alle associazioni"]],
+        body: R.attivita.map(a => [a.id ? nomeSoggetto(a.id) : "(senza controparte)", num(a.venduto), num(a.aLoro), num(a.aNoi)]),
+        foot: [["Totale", num(R.attivita.reduce((t, a) => t + a.venduto, 0)), num(R.attivita.reduce((t, a) => t + a.aLoro, 0)), num(R.attivita.reduce((t, a) => t + a.aNoi, 0))]],
+        didParseCell: (d) => { if (d.column.index >= 1) d.cell.styles.halign = "right"; }
+      });
+      dopo();
+    }
 
     /* --- 4. Controparti --- */
     const cp = righeControparti().slice(1);
@@ -3597,7 +3634,7 @@ function FinanzeView({ finanze, pronte, onSalva: salvaDoc, log, mostra }) {
         <div className="stat ok"><b className="num">{euro(R.ricaviNetti)}</b><i>ricavi netti</i></div>
         <div className="stat bad"><b className="num">{euro(R.costi)}</b><i>costi</i></div>
         <div className={"stat " + (R.risultato >= 0 ? "ok" : "bad")}><b className="num">{euro(R.risultato)}</b><i>da ripartire</i></div>
-        <div className="stat warn"><b className="num">{euro(R.girate)}</b><i>da girare</i></div>
+        <div className="stat warn"><b className="num">{euro(R.girate)}</b><i>alle attività</i></div>
         {R.fondi > 0 && <div className="stat warn"><b className="num">{euro(R.fondi)}</b><i>fondo cassa</i></div>}
         <div className={"stat " + (R.daConsuntivare > 0 ? "warn" : "")}><b className="num">{R.daConsuntivare}</b><i>da consuntivare</i></div>
         {R.senzaEnte > 0 && <div className="stat bad"><b className="num">{R.senzaEnte}</b><i>senza associazione</i></div>}
@@ -3642,7 +3679,8 @@ function FinanzeView({ finanze, pronte, onSalva: salvaDoc, log, mostra }) {
                         <div className="fin-sub">
                           {v.data ? v.data + " · " : ""}
                           {v.tipo === "ricavo" && q < 100 ? "alle associazioni " + q + "%" : ""}
-                          {v.tipo === "fondo" ? (v.restituito ? "già restituito" : "da restituire" + (v.presso && v.presso !== v.ente ? " · in cassa a " + nomeEnte(v.presso) : "")) : ""}
+                          {v.tipo === "fondo" ? (fondoRestituito(v) ? "già restituito" : "da restituire" + (v.presso && v.presso !== v.ente ? " · in cassa a " + nomeEnte(v.presso) : "") + (fondoNegliIncassi(v) ? " · già nelle casse" : "")) : ""}
+                          {ricavoNegliIncassi(v) ? " · venduto già nelle casse" : ""}
                           {v.ripartita === false && v.tipo !== "fondo" ? "non ripartita" : ""}
                         </div>
                       </td>
@@ -3667,20 +3705,47 @@ function FinanzeView({ finanze, pronte, onSalva: salvaDoc, log, mostra }) {
             <h2>Come si chiude</h2>
             <table className="tab-cards">
               <tbody>
-                <tr><td data-label="Voce">Ricavi lordi incassati</td><td className="num" data-label="Importo">{euro(R.ricaviLordi)}</td></tr>
-                <tr><td data-label="Voce">Da girare alle attività commerciali</td><td className="num imp neg" data-label="Importo">− {euro(R.girate)}</td></tr>
-                <tr><td data-label="Voce">Ricavi netti delle associazioni</td><td className="num imp pos" data-label="Importo">{euro(R.ricaviNetti)}</td></tr>
-                {R.prelievi > 0 && <tr><td data-label="Voce">Di cui merce tenuta dalle associazioni (prelievi)</td><td className="num" data-label="Importo">{euro(R.prelievi)}</td></tr>}
+                <tr><td data-label="Voce">Incasso lordo (casse e POS)</td><td className="num" data-label="Importo">{euro(R.ricaviLordi)}</td></tr>
+                {R.fondoIncassi > 0 && <tr><td data-label="Voce">Fondo cassa compreso negli incassi</td><td className="num imp neg" data-label="Importo">− {euro(R.fondoIncassi)}</td></tr>}
+                <tr><td data-label="Voce">Quota delle attività commerciali</td><td className="num imp neg" data-label="Importo">− {euro(R.girate)}</td></tr>
+                <tr><td data-label="Voce"><b>Incasso delle associazioni</b></td><td className="num imp pos" data-label="Importo"><b>{euro(R.incassoAssoc)}</b></td></tr>
+                {R.prelievi > 0 && <tr><td data-label="Voce">Merce tenuta dalle associazioni (prelievi)</td><td className="num" data-label="Importo">+ {euro(R.prelievi)}</td></tr>}
                 <tr><td data-label="Voce">Costi</td><td className="num imp neg" data-label="Importo">− {euro(R.costi)}</td></tr>
                 <tr><td data-label="Voce"><b>Risultato da ripartire</b></td><td className={"num imp " + (R.risultato >= 0 ? "pos" : "neg")} data-label="Importo"><b>{euro(R.risultato)}</b></td></tr>
-                {R.fondi > 0 && <tr><td data-label="Voce">Fondi cassa anticipati, da restituire (fuori dal risultato)</td><td className="num" data-label="Importo">{euro(R.fondi)}</td></tr>}
+                {R.fondi > 0 && <tr><td data-label="Voce">Fondo cassa da restituire (fuori dal risultato)</td><td className="num" data-label="Importo">{euro(R.fondi)}</td></tr>}
               </tbody>
             </table>
           </div>
 
+          {R.attivita.length > 0 && (
+            <div className="panel">
+              <h2>Attività commerciali: scorporo</h2>
+              <p className="hint">Quanto hanno venduto le attività, quanto va girato a loro e quanto resta alle associazioni.</p>
+              <table className="tab-cards">
+                <thead><tr><th>Attività</th><th>Venduto</th><th>Alle attività</th><th>Alle associazioni</th></tr></thead>
+                <tbody>
+                  {R.attivita.map(a => (
+                    <tr key={a.id || "nessuno"}>
+                      <td data-label="Attività"><b>{a.id ? nomeSoggetto(a.id) : "(senza controparte)"}</b></td>
+                      <td className="num" data-label="Venduto">{euro(a.venduto)}</td>
+                      <td className="num imp neg" data-label="Alle attività">{euro(a.aLoro)}</td>
+                      <td className="num imp pos" data-label="Alle associazioni">{euro(a.aNoi)}</td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td data-label="Attività"><b>Totale</b></td>
+                    <td className="num" data-label="Venduto"><b>{euro(R.attivita.reduce((t, a) => t + a.venduto, 0))}</b></td>
+                    <td className="num imp neg" data-label="Alle attività"><b>{euro(R.attivita.reduce((t, a) => t + a.aLoro, 0))}</b></td>
+                    <td className="num imp pos" data-label="Alle associazioni"><b>{euro(R.attivita.reduce((t, a) => t + a.aNoi, 0))}</b></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <div className="panel">
             <h2>Chi ha in mano cosa</h2>
-            <p className="hint">Disponibile = incassato + prelievi in natura + fondo cassa che tiene − quanto deve girare alle attività − costi pagati (escluse le voci non ripartite).
+            <p className="hint">Disponibile = quello che l'associazione ha in mano: incassato (fondo cassa compreso) + prelievi in natura − quanto deve girare alle attività − costi pagati (escluse le voci non ripartite).
               Conguaglio = spettante + fondo cassa da restituire − disponibile: positivo si riceve, negativo si versa. La somma dei conguagli fa sempre zero.</p>
             <table className="tab-cards">
               <thead><tr><th>Associazione</th><th>Incassato</th><th>Prelievi</th><th>Da girare</th><th>Costi</th><th>Disponibile</th><th>Fondo cassa</th><th>Spettante</th><th>Conguaglio</th></tr></thead>
@@ -3844,7 +3909,7 @@ function FinanzeView({ finanze, pronte, onSalva: salvaDoc, log, mostra }) {
 /* ---------- Modale voce costo/ricavo ---------- */
 function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
   const [f, setF] = useState(() => ({
-    tipo: "costo", voce: "", ente: "", presso: "", soggetto: "", preventivo: 0, consuntivo: "", quotaAssoc: 100, ripartita: true, restituito: false, data: "", note: "",
+    tipo: "costo", voce: "", ente: "", presso: "", soggetto: "", preventivo: 0, consuntivo: "", quotaAssoc: 100, ripartita: true, restituito: false, incluso: false, statoFondo: "", data: "", note: "",
     ...dati,
     quotaAssoc: (dati && dati.quotaAssoc != null) ? dati.quotaAssoc : 100,
     consuntivo: (dati && dati.consuntivo != null) ? dati.consuntivo : ""
@@ -3892,6 +3957,11 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
               <input type="checkbox" checked={!!f.restituito} onChange={e => set("restituito", e.target.checked)} />
               Già restituito
             </label>
+            <label className="check" style={{ margin: "0 0 10px" }}>
+              <input type="checkbox" checked={f.statoFondo === "incluso" || f.incluso === true}
+                onChange={e => setF(p => ({ ...p, statoFondo: e.target.checked ? "incluso" : "", incluso: e.target.checked }))} />
+              È già compreso negli incassi delle casse (contato insieme all'incasso)
+            </label>
           </div>
         )}
         {f.tipo !== "fondo" && <div className="field"><label>Controparte</label>
@@ -3914,6 +3984,12 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
           <div className="field"><label>% dell'incasso che resta alle associazioni</label>
             <input type="number" step="0.5" min="0" max="100" value={f.quotaAssoc} onChange={e => set("quotaAssoc", e.target.value)} />
             <p className="hint">Su {euro(imp)} restano {euro(imp * q / 100)} alle associazioni e {euro(imp - imp * q / 100)} vanno girati alla controparte. Per gli incassi normali lascia 100.</p>
+            {q < 100 && (
+              <label className="check" style={{ margin: "6px 0 0" }}>
+                <input type="checkbox" checked={f.incluso === true} onChange={e => set("incluso", e.target.checked)} />
+                Venduto già compreso negli incassi delle casse (non lo sommo di nuovo, tolgo solo la quota dell'attività)
+              </label>
+            )}
           </div>
         )}
         {f.tipo !== "fondo" && (
@@ -3936,6 +4012,8 @@ function ModaleVoce({ dati, soggetti, enti, onSalva, onElimina, onChiudi }) {
               quotaAssoc: f.tipo === "ricavo" ? q : 100,
               ripartita: f.ripartita !== false,
               restituito: f.tipo === "fondo" ? !!f.restituito : false,
+              statoFondo: f.tipo === "fondo" ? (f.statoFondo === "incluso" || f.incluso === true ? "incluso" : "") : "",
+              incluso: f.tipo === "fondo" ? (f.statoFondo === "incluso" || f.incluso === true) : (f.tipo === "ricavo" && q < 100 ? f.incluso === true : false),
               presso: f.tipo === "fondo" ? (f.presso || f.ente || "") : "",
               creata: f.creata || Date.now()
             });
